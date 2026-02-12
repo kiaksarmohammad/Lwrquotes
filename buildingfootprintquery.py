@@ -3,19 +3,17 @@ import planetary_computer as pc
 from geopy.geocoders import Nominatim, ArcGIS
 from geopy.location import Location
 from geopy.exc import GeocoderServiceError
-from shapely.geometry import shape, box, mapping
+from shapely.geometry import box, mapping, Point
+from shapely import wkb
+from shapely.ops import transform
+from pyproj import Transformer
+import pyarrow.parquet as pq
+import adlfs
 import math
 import time
 
-# --- CONFIGURATION ---
-PRICING = {
-    "TPO_60mil_Mechanically_Attached": 8.50,
-    "EPDM_60mil_Fully_Adhered": 9.75,
-    "ISO_Insulation_2_Layer": 3.50,
-    "Parapet_Flashing_Detail": 18.00,
-    "HVAC_Curb_Detail": 350.00
-}
-
+from database import PRICING
+    
 def get_commercial_footprint(address: str):
     # FIX 1: Ensure we use the standard synchronous Geolocator
     # We do NOT pass an 'adapter_factory' here, ensuring it blocks and returns data, not a coroutine.
@@ -45,43 +43,88 @@ def get_commercial_footprint(address: str):
         
     print(f"Locate: {address} ({location.latitude}, {location.longitude})")
     
-    # Create search box
-    bbox = box(location.longitude - 0.001, location.latitude - 0.001, 
+    # Find the region-level STAC item to get the parquet file path
+    bbox = box(location.longitude - 0.001, location.latitude - 0.001,
                location.longitude + 0.001, location.latitude + 0.001)
-    
+
     catalog = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1", modifier=pc.sign_inplace)
     search = catalog.search(
         filter_lang="cql2-json",
         filter={
-            "op": "and", 
+            "op": "and",
             "args": [
                 {"op": "s_intersects", "args": [{"property": "geometry"}, mapping(bbox)]},
                 {"op": "=", "args": [{"property": "collection"}, "ms-buildings"]}
             ]
         }
     )
-    
-    items = list(search.items())
+
+    items = list(search.items()) 
     if not items:
+        raise ValueError("No building footprint data found for this region.")
+
+    # Compute quadkey (level 9) for the target location to filter the parquet file
+    quadkey = _lat_lon_to_quadkey(location.latitude, location.longitude, 9)
+    print(f"Searching buildings in quadkey {quadkey}...")
+
+    sas_token = pc.sas.get_token("bingmlbuildings", "footprints").token
+    fs = adlfs.AzureBlobFileSystem(account_name="bingmlbuildings", sas_token=sas_token)
+
+    # Try each regional parquet file until we find buildings
+    table = None
+    for item in items:
+        asset_href = item.assets["data"].href
+        parquet_path = asset_href.replace("abfs://", "")
+        print(f"Checking {item.id}...")
+        t = pq.read_table(parquet_path, filesystem=fs,
+                          filters=[("quadkey", "=", int(quadkey))],
+                          columns=["geometry"])
+        if len(t) > 0:
+            table = t
+            break
+
+    if table is None or len(table) == 0:
         raise ValueError("No building footprint found at this location.")
 
-    # FIX 2: Handle the 'None' type error for geometry
-    first_item = items[0]
-    
-    # We explicitly check if geometry exists. If it's None, we stop.
-    # This satisfies Pylance that we aren't passing None to shape().
-    if first_item.geometry is None:
-        raise ValueError("Building footprint found, but geometry data is missing (None).")
+    # Parse WKB geometries and find the building closest to the address
+    target = Point(location.longitude, location.latitude)
+    geoms = [wkb.loads(g.as_py()) for g in table.column("geometry")]
+    dists = [g.distance(target) for g in geoms]
+    closest = geoms[dists.index(min(dists))]
+    print(f"Found building footprint ({len(geoms)} candidates in tile)")
 
-    return shape(first_item.geometry)
+    return closest
+
+
+def _lat_lon_to_quadkey(lat: float, lon: float, level: int) -> str:
+    x = int((lon + 180) / 360 * (2 ** level))
+    sin_lat = math.sin(lat * math.pi / 180)
+    y = int((0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)) * (2 ** level))
+    quadkey = ""
+    for i in range(level, 0, -1):
+        digit = 0
+        mask = 1 << (i - 1)
+        if x & mask:
+            digit += 1
+        if y & mask:
+            digit += 2
+        quadkey += str(digit)
+    return quadkey
 
 def estimate_flat_roof(polygon, system_type="TPO", parapet_height_ft=2.0, hvac_count_est=None):
-    # 1. Base Geometry
-    # Approx conversion: 1 degree latitude ~ 364,000 ft (rough estimation for estimator logic)
-    # For high precision, use pyproj.
-    field_area_sqft = polygon.area * 11630000000  # Adjusted scalar for lat/lon -> sq ft roughly
-    
-    perimeter_lf = polygon.length * 340000 # Rough deg -> ft conversion
+    # 1. Base Geometry — project from WGS84 (lat/lon) to UTM (meters), then convert to feet
+    centroid = polygon.centroid
+    utm_zone = int((centroid.x + 180) / 6) + 1
+    hemisphere = "north" if centroid.y >= 0 else "south"
+    utm_crs = f"+proj=utm +zone={utm_zone} +{hemisphere} +datum=WGS84"
+
+    projector = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+    polygon_m = transform(projector.transform, polygon)
+
+    SQ_M_TO_SQ_FT = 10.7639
+    M_TO_FT = 3.28084
+    field_area_sqft = polygon_m.area * SQ_M_TO_SQ_FT
+    perimeter_lf = polygon_m.length * M_TO_FT
     
     # 2. Heuristics
     if hvac_count_est is None:
