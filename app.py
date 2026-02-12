@@ -175,6 +175,7 @@ def drawing_upload(
     spec_file: UploadFile | None = File(None),
 ):
     import pypdfium2 as pdfium
+    from backend.drawing_analyzer import suggest_page_ranges
 
     # Save drawing PDF
     pdf_path = UPLOAD_DIR / f"{uuid4().hex}_{pdf_file.filename}"
@@ -184,6 +185,9 @@ def drawing_upload(
     doc = pdfium.PdfDocument(str(pdf_path))
     page_count = len(doc)
     doc.close()
+
+    # Auto-detect page ranges
+    suggestions = suggest_page_ranges(str(pdf_path))
 
     # Save optional spec PDF
     spec_path_str = ""
@@ -208,7 +212,100 @@ def drawing_upload(
         "spec_path": spec_path_str,
         "spec_filename": spec_filename,
         "spec_page_count": spec_page_count,
+        "suggestions": suggestions,
     })
+
+
+@app.post("/drawing/measure", response_class=HTMLResponse)
+def drawing_measure(
+    request: Request,
+    pdf_path: str = Form(...),
+    plan_pages: str = Form(""),
+    detail_pages: str = Form(""),
+    spec_path: str = Form(""),
+    spec_pages: str = Form(""),
+):
+    # Path traversal protection
+    if not pdf_path.startswith(str(UPLOAD_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    if spec_path and not spec_path.startswith(str(UPLOAD_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid spec file path")
+
+    try:
+        from backend.drawing_analyzer import (
+            analyze_measurements,
+            analyze_parapet_height,
+            _parse_page_list
+        )
+        from google import genai
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not set in .env file")
+
+        client = genai.Client(api_key=api_key)
+
+        plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
+        detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
+
+        # Step 1: Measure Plan Pages (Area, Perimeter, Parapet Length)
+        measurements = {
+            "scale": "Unknown",
+            "total_roof_area_sqft": 0.0,
+            "perimeter_lf": 0.0,
+            "parapet_length_lf": 0.0,
+            "confidence": "low",
+            "notes": "No plan pages selected."
+        }
+        if plan_pg:
+            measurements = analyze_measurements(pdf_path, plan_pg, client)
+
+        # Step 2: Measure Detail Pages (Parapet Height)
+        parapet_height = {
+            "parapet_height_ft": 2.0,
+            "confidence": "low",
+            "notes": "No detail pages selected."
+        }
+        if detail_pg:
+            parapet_height = analyze_parapet_height(pdf_path, detail_pg, client)
+
+        return templates.TemplateResponse("drawing_form.html", {
+            "request": request,
+            "step": 3,
+            "pdf_path": pdf_path,
+            "plan_pages": plan_pages,
+            "detail_pages": detail_pages,
+            "spec_path": spec_path,
+            "spec_pages": spec_pages,
+            "measurements": measurements,
+            "parapet_height": parapet_height,
+        })
+
+    except Exception as e:
+        # Fallback to manual entry on error
+        return templates.TemplateResponse("drawing_form.html", {
+            "request": request,
+            "step": 3,
+            "pdf_path": pdf_path,
+            "plan_pages": plan_pages,
+            "detail_pages": detail_pages,
+            "spec_path": spec_path,
+            "spec_pages": spec_pages,
+            "measurements": {
+                "scale": "Error",
+                "total_roof_area_sqft": 0.0,
+                "perimeter_lf": 0.0,
+                "parapet_length_lf": 0.0,
+                "confidence": "low",
+                "notes": f"Auto-measurement failed: {str(e)}"
+            },
+            "parapet_height": {
+                "parapet_height_ft": 2.0,
+                "confidence": "low",
+                "notes": "Using default height."
+            },
+            "error": str(e)
+        })
 
 
 @app.post("/drawing/analyze", response_class=HTMLResponse)
@@ -219,9 +316,9 @@ def drawing_analyze(
     detail_pages: str = Form(""),
     spec_path: str = Form(""),
     spec_pages: str = Form(""),
-    total_roof_area: float = Form(...),
-    perimeter_lf: float = Form(...),
-    parapet_length_lf: float = Form(0),
+    total_roof_area: float = Form(0.0),
+    perimeter_lf: float = Form(0.0),
+    parapet_length_lf: float = Form(0.0),
     parapet_height_ft: float = Form(2.0),
 ):
     # Path traversal protection

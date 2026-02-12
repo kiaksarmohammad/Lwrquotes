@@ -448,6 +448,21 @@ legend {
     margin: 0.15rem;
 }
 
+.tag-high {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.tag-medium {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.tag-low {
+    background: #f8d7da;
+    color: #842029;
+}
+
 /* -- Actions -- */
 .actions {
     display: flex;

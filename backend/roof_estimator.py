@@ -140,6 +140,35 @@ class RoofMeasurements:
                 self.electrical_penetration_count + self.plumbing_vent_count)
 
 
+def validate_measurements(m: RoofMeasurements) -> list[str]:
+    """
+    Validate measurements and return a list of warning messages.
+    Does not block execution, just flags suspicious values.
+    """
+    warnings = []
+    
+    if m.total_roof_area_sqft <= 0:
+        warnings.append("Total roof area is zero or negative.")
+    
+    if m.perimeter_lf <= 0:
+        warnings.append("Roof perimeter is zero or negative.")
+        
+    if m.total_roof_area_sqft > 0 and m.perimeter_lf > 0:
+        # Check for unreasonable area/perimeter ratio (e.g. extremely long/thin or error)
+        # A square has P = 4 * sqrt(A). If P is vastly smaller, it's physically impossible.
+        min_perimeter = 4 * math.sqrt(m.total_roof_area_sqft)
+        if m.perimeter_lf < min_perimeter * 0.5: # Allow some margin for error/shape
+            warnings.append(f"Perimeter ({m.perimeter_lf:.0f}') seems too small for the area ({m.total_roof_area_sqft:.0f} sqft).")
+
+    if m.parapet_length_lf > m.perimeter_lf * 1.5:
+        warnings.append("Parapet length is significantly longer than roof perimeter.")
+        
+    if m.parapet_height_ft > 6.0:
+        warnings.append(f"Parapet height ({m.parapet_height_ft} ft) is unusually high.")
+        
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Assembly Definition - Inverted Modified Bitumen (2-Ply SBS, Soprema)
 # Spec: Div 07 52 01 / 07 62 00 / 07 92 00

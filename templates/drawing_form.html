@@ -34,7 +34,7 @@
 <p>Spec PDF: <strong>{{ spec_filename }}</strong> ({{ spec_page_count }} pages)</p>
 {% endif %}
 
-<form method="POST" action="/drawing/analyze" class="estimate-form">
+<form method="POST" action="/drawing/measure" class="estimate-form">
     <input type="hidden" name="pdf_path" value="{{ pdf_path }}">
     <input type="hidden" name="spec_path" value="{{ spec_path }}">
 
@@ -42,12 +42,12 @@
         <legend>Page Ranges (1-indexed, comma-separated or ranges like 1-3)</legend>
         <div class="form-row">
             <label for="plan_pages">Plan View Pages</label>
-            <input type="text" id="plan_pages" name="plan_pages" placeholder="e.g. 2,3">
+            <input type="text" id="plan_pages" name="plan_pages" placeholder="e.g. 2,3" value="{{ suggestions.plan_pages if suggestions else '' }}">
             <small>Pages showing the roof plan view with equipment layout</small>
         </div>
         <div class="form-row">
             <label for="detail_pages">Detail/Section Pages</label>
-            <input type="text" id="detail_pages" name="detail_pages" placeholder="e.g. 4,5,6">
+            <input type="text" id="detail_pages" name="detail_pages" placeholder="e.g. 4,5,6" value="{{ suggestions.detail_pages if suggestions else '' }}">
             <small>Pages showing cross-section details and material assemblies</small>
         </div>
         {% if spec_path %}
@@ -61,31 +61,77 @@
         {% endif %}
     </fieldset>
 
+    <div class="alert alert-info">
+        We will first scan the plan pages to auto-measure the roof area and perimeter.
+    </div>
+
+    <button type="submit" class="btn btn-primary">Auto-Measure & Continue</button>
+</form>
+
+{% elif step == 3 %}
+<p>Review AI-measured values before final analysis.</p>
+
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+</div>
+{% endif %}
+
+<form method="POST" action="/drawing/analyze" class="estimate-form">
+    <input type="hidden" name="pdf_path" value="{{ pdf_path }}">
+    <input type="hidden" name="spec_path" value="{{ spec_path }}">
+    <input type="hidden" name="plan_pages" value="{{ plan_pages }}">
+    <input type="hidden" name="detail_pages" value="{{ detail_pages }}">
+    <input type="hidden" name="spec_pages" value="{{ spec_pages }}">
+
+    <div class="summary-bar">
+        <div class="summary-item">
+            <span class="label">Scale Found</span>
+            <span class="value">{{ measurements.scale }}</span>
+        </div>
+        <div class="summary-item">
+            <span class="label">Confidence</span>
+            <span class="value">
+                <span class="tag tag-{{ measurements.confidence|lower }}">{{ measurements.confidence|upper }}</span>
+            </span>
+        </div>
+    </div>
+
+    {% if measurements.notes %}
+    <div class="alert alert-info">
+        <strong>AI Notes:</strong> {{ measurements.notes }}
+    </div>
+    {% endif %}
+
     <fieldset>
-        <legend>Roof Measurements (from scaled drawings)</legend>
+        <legend>Roof Measurements (Verify & Edit)</legend>
         <div class="form-row">
             <label for="total_roof_area">Total Roof Area (sqft)</label>
-            <input type="number" id="total_roof_area" name="total_roof_area" step="any" required>
+            <input type="number" id="total_roof_area" name="total_roof_area" step="any" value="{{ measurements.total_roof_area_sqft }}" required>
         </div>
         <div class="form-row">
             <label for="perimeter_lf">Roof Perimeter (LF)</label>
-            <input type="number" id="perimeter_lf" name="perimeter_lf" step="any" required>
+            <input type="number" id="perimeter_lf" name="perimeter_lf" step="any" value="{{ measurements.perimeter_lf }}" required>
         </div>
         <div class="form-row">
             <label for="parapet_length_lf">Parapet Length (LF)</label>
-            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="0" placeholder="Defaults to perimeter">
+            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="{{ measurements.parapet_length_lf }}" placeholder="Defaults to perimeter">
         </div>
         <div class="form-row">
             <label for="parapet_height_ft">Parapet Height (ft)</label>
-            <input type="number" id="parapet_height_ft" name="parapet_height_ft" step="any" value="2.0">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="number" id="parapet_height_ft" name="parapet_height_ft" step="any" value="{{ parapet_height.parapet_height_ft }}">
+                <span class="tag tag-{{ parapet_height.confidence|lower }}">{{ parapet_height.confidence|upper }}</span>
+            </div>
+            <small>AI Note: {{ parapet_height.notes }}</small>
         </div>
     </fieldset>
 
     <div class="alert alert-info">
-        Analysis uses Gemini Vision AI. This may take 1-2 minutes per page. Please wait for the results.
+        Next step: Full analysis of details and item counts using Gemini Vision AI.
     </div>
 
-    <button type="submit" class="btn btn-primary">Analyze &amp; Calculate</button>
+    <button type="submit" class="btn btn-primary">Confirm & Analyze</button>
 </form>
 {% endif %}
 {% endblock %}

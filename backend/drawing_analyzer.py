@@ -39,7 +39,7 @@ load_dotenv()
 # Configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "gemini-3-pro"
+DEFAULT_MODEL = "gemini-3-pro-preview"
 RENDER_SCALE = 2.0  # 2x = ~144 DPI for drawing pages
 
 
@@ -110,6 +110,47 @@ def _product_names_list() -> str:
         for _, name in patterns.items():
             names.append(f"  [{cat}] {name}")
     return "\n".join(names)
+
+
+MEASUREMENT_PROMPT = """You are a roofing quantity surveyor analyzing a roof plan view drawing.
+
+Your goal is to extract the primary roof measurements from this drawing.
+
+1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100).
+2. DIMENSIONS: Read the overall dimensions of the building outline.
+3. CALCULATE:
+   - Total Roof Area (sqft): The total flat roof surface area.
+   - Perimeter (LF): The total length of the roof edge.
+   - Parapet Length (LF): The length of edges that have a parapet wall (vs. open edges or gutters).
+
+4. CONFIDENCE: Rate your confidence (high/medium/low) based on image clarity and scale visibility.
+
+Return ONLY valid JSON (no markdown, no explanation) in this format:
+{
+  "scale": "1/8\" = 1'-0\"",
+  "total_roof_area_sqft": 0.0,
+  "perimeter_lf": 0.0,
+  "parapet_length_lf": 0.0,
+  "confidence": "high",
+  "notes": "Scale found in bottom right. Dimensions clear."
+}"""
+
+
+PARAPET_HEIGHT_PROMPT = """You are a roofing quantity surveyor analyzing a detail/section drawing.
+
+Your goal is to find the Parapet Height.
+
+1. Look for a cross-section detail of a parapet wall.
+2. Read the vertical dimension from the roof deck level to the top of the coping cap.
+3. If multiple parapet details exist, pick the most common or tallest one.
+4. If no parapet detail is found, return 0.
+
+Return ONLY valid JSON (no markdown, no explanation) in this format:
+{
+  "parapet_height_ft": 0.0,
+  "confidence": "high",
+  "notes": "Found detail 3/A5.0 showing 2'-6\" height."
+}"""
 
 
 DETAIL_PROMPT = """You are a roofing quantity-takeoff specialist analyzing architectural detail/section drawings.
@@ -257,6 +298,7 @@ def _call_gemini(client: genai.Client, model: str, image: Image.Image,
                 time.sleep(wait)
             else:
                 raise
+    raise RuntimeError("Gemini API failed")
 
 
 def _extract_json(text: str) -> str:
@@ -346,6 +388,144 @@ def analyze_spec(pdf_path: str, spec_pages: list[int],
             results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
 
     return results
+
+
+def analyze_measurements(pdf_path: str, plan_pages: list[int],
+                         client: genai.Client, model: str = DEFAULT_MODEL) -> dict:
+    """
+    Analyze plan pages to extract roof measurements (Area, Perimeter, Parapet Length).
+    Returns the result from the highest-confidence page.
+    """
+    images = render_pdf_pages(pdf_path, plan_pages)
+    
+    candidates = []
+    for page_num, img in images:
+        print(f"  Measuring plan on page {page_num}...")
+        raw = _call_gemini(client, model, img, MEASUREMENT_PROMPT)
+        json_str = _extract_json(raw)
+        try:
+            data = json.loads(json_str)
+            data["source_page"] = page_num
+            candidates.append(data)
+        except json.JSONDecodeError:
+            print(f"  WARNING: Could not parse JSON from page {page_num}")
+    
+    return _aggregate_measurements(candidates)
+
+
+def _aggregate_measurements(candidates: list[dict]) -> dict:
+    """Select the best measurement result based on confidence."""
+    if not candidates:
+        return {
+            "scale": "Unknown",
+            "total_roof_area_sqft": 0.0,
+            "perimeter_lf": 0.0,
+            "parapet_length_lf": 0.0,
+            "confidence": "low",
+            "notes": "No measurements extracted."
+        }
+    
+    # Sort by confidence: high > medium > low
+    priority = {"high": 3, "medium": 2, "low": 1}
+    candidates.sort(key=lambda x: priority.get(x.get("confidence", "low").lower(), 0), reverse=True)
+    
+    best = candidates[0]
+    # Ensure numeric values are floats
+    for key in ["total_roof_area_sqft", "perimeter_lf", "parapet_length_lf"]:
+        if key in best:
+            try:
+                best[key] = float(best[key])
+            except (ValueError, TypeError):
+                best[key] = 0.0
+                
+    return best
+
+
+def analyze_parapet_height(pdf_path: str, detail_pages: list[int],
+                           client: genai.Client, model: str = DEFAULT_MODEL) -> dict:
+    """
+    Analyze detail pages to find parapet height.
+    Returns the result from the highest-confidence page.
+    """
+    images = render_pdf_pages(pdf_path, detail_pages)
+    
+    candidates = []
+    for page_num, img in images:
+        print(f"  Checking parapet height on page {page_num}...")
+        raw = _call_gemini(client, model, img, PARAPET_HEIGHT_PROMPT)
+        json_str = _extract_json(raw)
+        try:
+            data = json.loads(json_str)
+            data["source_page"] = page_num
+            candidates.append(data)
+        except json.JSONDecodeError:
+            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            
+    return _select_best_parapet_height(candidates)
+
+
+def _select_best_parapet_height(candidates: list[dict]) -> dict:
+    """Select the best parapet height result."""
+    if not candidates:
+        return {
+            "parapet_height_ft": 2.0,
+            "confidence": "low",
+            "notes": "No parapet details found, using default."
+        }
+
+    # Filter out zero heights unless all are zero
+    non_zero = [c for c in candidates if c.get("parapet_height_ft", 0) > 0]
+    pool = non_zero if non_zero else candidates
+
+    # Sort by confidence
+    priority = {"high": 3, "medium": 2, "low": 1}
+    pool.sort(key=lambda x: priority.get(x.get("confidence", "low").lower(), 0), reverse=True)
+    
+    best = pool[0]
+    try:
+        best["parapet_height_ft"] = float(best.get("parapet_height_ft", 2.0))
+    except (ValueError, TypeError):
+        best["parapet_height_ft"] = 2.0
+        
+    return best
+
+
+def suggest_page_ranges(pdf_path: str) -> dict:
+    """
+    Scan PDF text to suggest plan and detail page ranges.
+    Returns dict with 'plan_pages' and 'detail_pages' as comma-separated strings.
+    """
+    doc = pdfium.PdfDocument(pdf_path)
+    plan_pages = []
+    detail_pages = []
+    
+    for i, page in enumerate(doc):
+        page_num = i + 1
+        try:
+            text_page = page.get_textpage()
+            text = text_page.get_text_range().lower()
+            text_page.close()
+        except Exception:
+            continue
+            
+        # Heuristics for page classification
+        if "roof plan" in text:
+            plan_pages.append(page_num)
+        elif "detail" in text or "section" in text or "elevation" in text:
+            detail_pages.append(page_num)
+            
+    doc.close()
+    
+    def _format_pages(pages):
+        if not pages:
+            return ""
+        # Simple comma separation for now
+        return ",".join(map(str, pages))
+
+    return {
+        "plan_pages": _format_pages(plan_pages),
+        "detail_pages": _format_pages(detail_pages)
+    }
 
 
 # ---------------------------------------------------------------------------
