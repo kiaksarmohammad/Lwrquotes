@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Manual Estimate - LWR{% endblock %}
+
+{% block content %}
+<h1>Manual Estimate</h1>
+<p>Enter measurements from scaled architectural drawings.</p>
+
+<form method="POST" action="/manual" class="estimate-form">
+    <fieldset>
+        <legend>Areas (required)</legend>
+        <div class="form-row">
+            <label for="total_roof_area">Total Roof Area (sqft)</label>
+            <input type="number" id="total_roof_area" name="total_roof_area" step="any" required>
+        </div>
+        <div class="form-row">
+            <label for="perimeter_lf">Roof Perimeter (LF)</label>
+            <input type="number" id="perimeter_lf" name="perimeter_lf" step="any" required>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Parapet</legend>
+        <div class="form-row">
+            <label for="parapet_length_lf">Parapet Length (LF)</label>
+            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="0" placeholder="Defaults to perimeter">
+        </div>
+        <div class="form-row">
+            <label for="parapet_height_ft">Parapet Height (ft)</label>
+            <input type="number" id="parapet_height_ft" name="parapet_height_ft" step="any" value="2.0">
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Drains &amp; Scuppers</legend>
+        <div class="form-row">
+            <label for="roof_drain_count">Roof Drains</label>
+            <input type="number" id="roof_drain_count" name="roof_drain_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="scupper_count">Overflow Scuppers</label>
+            <input type="number" id="scupper_count" name="scupper_count" value="0" min="0">
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Equipment &amp; Penetrations</legend>
+        <div class="form-row">
+            <label for="mechanical_unit_count">Mechanical Units (RTUs)</label>
+            <input type="number" id="mechanical_unit_count" name="mechanical_unit_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="sleeper_curb_count">Sleeper Curbs</label>
+            <input type="number" id="sleeper_curb_count" name="sleeper_curb_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="vent_hood_count">Vent Hoods</label>
+            <input type="number" id="vent_hood_count" name="vent_hood_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="gas_penetration_count">Gas Penetrations</label>
+            <input type="number" id="gas_penetration_count" name="gas_penetration_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="electrical_penetration_count">Electrical Penetrations</label>
+            <input type="number" id="electrical_penetration_count" name="electrical_penetration_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label for="plumbing_vent_count">Plumbing Vents</label>
+            <input type="number" id="plumbing_vent_count" name="plumbing_vent_count" value="0" min="0">
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Optional Overrides</legend>
+        <div class="form-row">
+            <label for="tapered_area_sqft">Tapered Insulation Area (sqft)</label>
+            <input type="number" id="tapered_area_sqft" name="tapered_area_sqft" step="any" value="0" placeholder="0 = full roof area">
+        </div>
+        <div class="form-row">
+            <label for="ballast_area_sqft">Ballast Area (sqft)</label>
+            <input type="number" id="ballast_area_sqft" name="ballast_area_sqft" step="any" value="0" placeholder="0 = full roof area">
+        </div>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary">Calculate Estimate</button>
+</form>
+{% endblock %}

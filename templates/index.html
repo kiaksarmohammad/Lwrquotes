@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}LWR Roofing Estimator{% endblock %}
+
+{% block content %}
+<h1>Commercial Roofing Estimation</h1>
+<p class="subtitle">Generate quantity takeoffs and cost estimates for flat roof replacement and restoration projects.</p>
+
+<div class="card-grid">
+    <div class="card">
+        <h2>Address Lookup</h2>
+        <p>Enter a commercial address to query satellite building footprint data and generate a quick cost estimate based on roof area and perimeter.</p>
+        <ul>
+            <li>Automatic building footprint detection</li>
+            <li>TPO or EPDM system pricing</li>
+            <li>Instant area and perimeter calculation</li>
+        </ul>
+        <a href="/address" class="btn">Start Address Lookup</a>
+    </div>
+
+    <div class="card">
+        <h2>Drawing Analysis</h2>
+        <p>Upload architectural PDF drawings for AI-powered analysis. Extracts detail assemblies, material layers, and item counts using Gemini Vision.</p>
+        <ul>
+            <li>AI vision analysis of plan and detail views</li>
+            <li>Automatic material layer identification</li>
+            <li>Specification page extraction</li>
+        </ul>
+        <a href="/drawing" class="btn">Upload Drawings</a>
+    </div>
+
+    <div class="card">
+        <h2>Manual Estimate</h2>
+        <p>Enter measurements from scaled architectural drawings to calculate a full material quantity takeoff with bid-form-ready cost estimates.</p>
+        <ul>
+            <li>Detailed quantity takeoff</li>
+            <li>100+ product pricing database</li>
+            <li>Bid form summary with labour multipliers</li>
+        </ul>
+        <a href="/manual" class="btn">Enter Measurements</a>
+    </div>
+</div>
+{% endblock %}

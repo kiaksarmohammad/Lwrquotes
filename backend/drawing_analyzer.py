@@ -30,7 +30,7 @@ from google.genai import types
 import pypdfium2 as pdfium
 from PIL import Image
 
-from database import PRICING, PRODUCT_KEYWORDS
+from backend.database import PRICING, PRODUCT_KEYWORDS
 
 # Load .env file (GEMINI_API_KEY, etc.)
 load_dotenv()

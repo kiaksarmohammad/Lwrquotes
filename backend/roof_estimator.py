@@ -16,7 +16,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 
-from database import PRICING
+from backend.database import PRICING
 
 
 # ---------------------------------------------------------------------------

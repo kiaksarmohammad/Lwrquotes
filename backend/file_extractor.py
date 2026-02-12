@@ -16,7 +16,7 @@ try:
 except ImportError:
     PdfReader = None
 
-from database import PRODUCT_KEYWORDS
+from backend.database import PRODUCT_KEYWORDS
 
 # Patterns to capture dimensions / thicknesses tied to a product
 DIMENSION_PATTERN = re.compile(

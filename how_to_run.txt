@@ -1,0 +1,3 @@
+python app.py
+# or: uvicorn app:app --reload
+# Opens at http://127.0.0.1:8000

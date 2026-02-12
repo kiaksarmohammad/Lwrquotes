@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LWR Roofing Estimator{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/" class="nav-brand">LWR Roofing Estimator</a>
+        <div class="nav-links">
+            <a href="/address">Address Lookup</a>
+            <a href="/drawing">Drawing Analysis</a>
+            <a href="/manual">Manual Estimate</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>LWR Quotes - Commercial Roofing Estimation System</p>
+    </footer>
+</body>
+</html>

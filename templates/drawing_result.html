@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Drawing Analysis Results - LWR{% endblock %}
+
+{% block content %}
+<h1>Drawing Analysis Results</h1>
+
+{% if error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error }}
+</div>
+<a href="/drawing" class="btn">Try Again</a>
+
+{% else %}
+
+<!-- AI Analysis Summary -->
+{% if analysis %}
+<h2>AI Analysis Summary</h2>
+
+{% for plan in analysis.plan_analysis %}
+{% if not plan.parse_error %}
+<div class="detail-card">
+    <h3>Plan View: {{ plan.drawing_ref | default("?") }} (page {{ plan.source_page }})</h3>
+    {% if plan.scale %}<p>Scale: {{ plan.scale }}</p>{% endif %}
+    {% set counts = plan.counts | default({}) %}
+    {% set nonzero = {} %}
+    {% for k, v in counts.items() if v > 0 %}
+    <span class="tag">{{ k }}: {{ v }}</span>
+    {% endfor %}
+    {% if plan.detail_references %}
+    <p><small>Detail refs: {{ plan.detail_references | join(", ") }}</small></p>
+    {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+
+{% for detail_page in analysis.detail_analysis %}
+{% if not detail_page.parse_error %}
+<div class="detail-card">
+    <h3>Details: {{ detail_page.drawing_ref | default("?") }} (page {{ detail_page.source_page }})</h3>
+    {% for d in detail_page.details | default([]) %}
+    <div class="detail-sub">
+        <strong>{{ d.detail_name }}</strong> [{{ d.detail_type }}] - measured in: {{ d.measurement_type | default("?") }}
+        <ul>
+        {% for layer in d.layers | default([]) %}
+            <li>{{ layer.position }}. {{ layer.material }} &rarr; {{ layer.pricing_key }}
+                {% if layer.notes %}<small>({{ layer.notes }})</small>{% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endfor %}
+
+{% for spec in analysis.spec_analysis %}
+{% if not spec.parse_error %}
+<div class="detail-card">
+    <h3>Spec: {{ spec.spec_section | default("?") }} - {{ spec.section_title | default("?") }} (page {{ spec.source_page }})</h3>
+    {% for mat in spec.materials | default([]) %}
+    <p>{{ mat.material_name }}{% if mat.brand_model %} ({{ mat.brand_model }}){% endif %} &rarr; {{ mat.pricing_key }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+<!-- Detail-Based Takeoff -->
+{% if detail_estimate and detail_estimate.details %}
+<h2>Detail-Based Quantity Takeoff (AI-Analyzed)</h2>
+
+{% set meas = detail_estimate.project_measurements %}
+<div class="summary-bar">
+    <div class="summary-item">
+        <span class="label">Roof Area</span>
+        <span class="value">{{ meas.total_roof_area_sqft | number }} sqft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Perimeter</span>
+        <span class="value">{{ meas.perimeter_lf | number }} LF</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Parapet</span>
+        <span class="value">{{ meas.parapet_length_lf | number }} LF x {{ meas.parapet_height_ft }} ft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Penetrations</span>
+        <span class="value">{{ meas.total_penetrations }}</span>
+    </div>
+</div>
+
+{% for detail in detail_estimate.details %}
+<div class="detail-card">
+    <h3>{{ detail.detail_name }} [{{ detail.detail_type }}]
+        <small>(ref: {{ detail.drawing_ref | default("?") }})</small>
+    </h3>
+    <p>Measured in: {{ detail.measurement_type }} | Base value: {{ "{:,}".format(detail.base_measurement) }} | Detail cost: {{ detail.detail_cost | currency }}</p>
+
+    <table class="results-table">
+        <thead>
+            <tr>
+                <th>Material</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Line Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for layer in detail.layers %}
+            <tr>
+                <td>
+                    {{ layer.material }}
+                    {% if layer.warning %}<br><small class="warning">{{ layer.warning }}</small>{% endif %}
+                    {% if layer.notes %}<br><small class="note">({{ layer.notes }})</small>{% endif %}
+                </td>
+                <td>{% if layer.quantity != "?" %}{{ layer.quantity }} {{ layer.unit }}{% else %}?{% endif %}</td>
+                <td>{{ layer.unit_price | currency }}</td>
+                <td>{% if layer.line_cost > 0 %}{{ layer.line_cost | currency }}{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+
+<!-- Bid Summary -->
+{% set bid = detail_estimate.bid_summary %}
+{% if bid %}
+<div class="bid-summary">
+    <h2>Estimate Summary</h2>
+    <table class="results-table">
+        <tbody>
+            <tr>
+                <td>Total Material Cost</td>
+                <td>{{ bid.material_cost | currency }}</td>
+            </tr>
+            <tr>
+                <td>General Requirements (10%)</td>
+                <td>{{ bid.general_requirements_10pct | currency }}</td>
+            </tr>
+            <tr>
+                <td>Labour + Material (1.65x)</td>
+                <td>{{ bid.labour_and_material_1_65x | currency }}</td>
+            </tr>
+        </tbody>
+    </table>
+    <div class="bid-total">
+        <span class="label">Total Project Estimate</span>
+        <span class="value">{{ bid.total_estimate | currency }}</span>
+    </div>
+    <div class="bid-persqft">
+        {{ bid.per_sqft | currency }} / sqft
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Standard Estimate for Comparison -->
+{% if standard_estimate %}
+<h2>Standard Estimate (for comparison)</h2>
+{% set sbid = standard_estimate.bid_summary %}
+<div class="bid-summary">
+    <div class="bid-total">
+        <span class="label">Standard Total Estimate</span>
+        <span class="value">{{ sbid.total_estimate | currency }}</span>
+    </div>
+</div>
+{% endif %}
+
+<div class="actions">
+    <a href="/drawing" class="btn">New Analysis</a>
+    <button onclick="window.print()" class="btn btn-secondary">Print</button>
+</div>
+
+{% endif %}
+{% endblock %}

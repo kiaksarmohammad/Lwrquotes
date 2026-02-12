@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Estimate Results - LWR{% endblock %}
+
+{% block content %}
+<h1>Roofing Quantity Takeoff &amp; Cost Estimate</h1>
+<p class="subtitle">Inverted Modified Bitumen (2-Ply SBS) - Soprema System | Spec: Div 07 52 01 / 07 62 00 / 07 92 00</p>
+
+{% set meas = estimate.project_measurements %}
+<div class="summary-bar">
+    <div class="summary-item">
+        <span class="label">Roof Area</span>
+        <span class="value">{{ meas.total_roof_area_sqft | number }} sqft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Perimeter</span>
+        <span class="value">{{ meas.perimeter_lf | number }} LF</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Parapet</span>
+        <span class="value">{{ meas.parapet_length_lf | number }} LF x {{ meas.parapet_height_ft }} ft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Penetrations</span>
+        <span class="value">{{ meas.total_penetrations }}</span>
+    </div>
+</div>
+
+<!-- Area-Based Materials -->
+<h2>Area-Based Materials</h2>
+<p class="section-desc">Membrane, insulation, drainage</p>
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th>Base Area</th>
+            <th>Waste</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Line Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in estimate.area_materials %}
+        <tr>
+            <td>
+                {{ item.name }}
+                {% if item.note %}<br><small class="note">{{ item.note }}</small>{% endif %}
+            </td>
+            <td>{{ item.base_area_sqft | number }} sqft</td>
+            <td>{{ item.waste_pct }}</td>
+            <td>{{ "{:,}".format(item.quantity) }} {{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{% if item.line_cost > 0 %}{{ item.line_cost | currency }}{% else %}TBD{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Linear Materials -->
+<h2>Linear-Foot Materials</h2>
+<p class="section-desc">Flashings, blocking, sheathing</p>
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th>Base LF</th>
+            <th>Waste</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Line Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in estimate.linear_materials %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.base_lf | number }} LF</td>
+            <td>{{ item.waste_pct }}</td>
+            <td>{{ "{:,}".format(item.quantity) }} {{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Unit Items -->
+{% if estimate.unit_items %}
+<h2>Unit Items</h2>
+<p class="section-desc">Drains, penetrations, equipment</p>
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>Item</th>
+            <th>Count</th>
+            <th>Multiplier</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Line Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in estimate.unit_items %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.base_count }}</td>
+            <td>{% if item.multiplier > 1 %}x{{ item.multiplier }}{% else %}-{% endif %}</td>
+            <td>{{ item.quantity }} {{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Consumables -->
+<h2>Consumables</h2>
+<p class="section-desc">Mastic, adhesive, sealant</p>
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Line Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in estimate.consumables %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.quantity }} {{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Bid Summary -->
+{% set bid = estimate.bid_summary %}
+<div class="bid-summary">
+    <h2>Bid Form Summary (Div 00 41 00)</h2>
+
+    <div class="bid-item">
+        <h3>1. {{ bid.item_1_general_requirements.description }}</h3>
+        <p class="note">{{ bid.item_1_general_requirements.note }}</p>
+        <p class="bid-cost">{{ bid.item_1_general_requirements.estimated_cost | currency }}</p>
+    </div>
+
+    <div class="bid-item">
+        <h3>2. {{ bid.item_2_roofing_assembly_and_flashing.description }}</h3>
+        <p>Material: {{ bid.item_2_roofing_assembly_and_flashing.material_cost | currency }} x {{ bid.item_2_roofing_assembly_and_flashing.labour_multiplier }}</p>
+        <p class="note">{{ bid.item_2_roofing_assembly_and_flashing.note }}</p>
+        <p class="bid-cost">{{ bid.item_2_roofing_assembly_and_flashing.estimated_cost | currency }}</p>
+    </div>
+
+    <div class="bid-item">
+        <h3>3. {{ bid.item_3_mechanical_support.description }}</h3>
+        <p>Material: {{ bid.item_3_mechanical_support.material_cost | currency }} x {{ bid.item_3_mechanical_support.labour_multiplier }}</p>
+        <p class="note">{{ bid.item_3_mechanical_support.note }}</p>
+        <p class="bid-cost">{{ bid.item_3_mechanical_support.estimated_cost | currency }}</p>
+    </div>
+
+    <div class="bid-total">
+        <span class="label">Total Project Estimate</span>
+        <span class="value">{{ bid.total_estimate | currency }}</span>
+    </div>
+    <div class="bid-persqft">
+        {{ (bid.total_estimate / meas.total_roof_area_sqft) | currency }} / sqft
+    </div>
+</div>
+
+<div class="actions">
+    <a href="/manual" class="btn">New Estimate</a>
+    <button onclick="window.print()" class="btn btn-secondary">Print</button>
+</div>
+{% endblock %}

@@ -12,7 +12,7 @@ import adlfs
 import math
 import time
 
-from database import PRICING
+from backend.database import PRICING
     
 def get_commercial_footprint(address: str):
     # FIX 1: Ensure we use the standard synchronous Geolocator

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Address Estimate - LWR{% endblock %}
+
+{% block content %}
+<h1>Address-Based Estimate</h1>
+
+{% if error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error }}
+</div>
+<p>Address searched: <strong>{{ address }}</strong></p>
+<a href="/address" class="btn">Try Again</a>
+
+{% elif result %}
+<p>Address: <strong>{{ address }}</strong></p>
+
+<div class="summary-bar">
+    <div class="summary-item">
+        <span class="label">Footprint Area</span>
+        <span class="value">{{ result.metrics.footprint_area_sqft | number }} sqft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Perimeter</span>
+        <span class="value">{{ result.metrics.perimeter_linear_ft | number }} LF</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Est. HVAC Units</span>
+        <span class="value">{{ result.metrics.est_hvac_units }}</span>
+    </div>
+</div>
+
+<div class="bid-summary">
+    <h2>Cost Estimate</h2>
+    <div class="bid-total">
+        <span class="label">Total Project Estimate</span>
+        <span class="value">{{ result.costs.TOTAL_ESTIMATE | currency }}</span>
+    </div>
+    {% if result.metrics.footprint_area_sqft > 0 %}
+    <div class="bid-persqft">
+        {{ (result.costs.TOTAL_ESTIMATE / result.metrics.footprint_area_sqft) | currency }} / sqft
+    </div>
+    {% endif %}
+</div>
+
+<div class="alert alert-info">
+    This is a rough estimate based on satellite building footprint data. For a detailed quantity takeoff, use the <a href="/manual">Manual Estimate</a> or <a href="/drawing">Drawing Analysis</a> workflow.
+</div>
+
+<div class="actions">
+    <a href="/address" class="btn">New Lookup</a>
+    <button onclick="window.print()" class="btn btn-secondary">Print</button>
+</div>
+
+{% endif %}
+{% endblock %}

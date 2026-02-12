@@ -1,0 +1,496 @@
+/* =============================================
+   LWR Roofing Estimator - Stylesheet
+   ============================================= */
+
+/* -- Reset & Base -- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* -- Navigation -- */
+.navbar {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 0.75rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.nav-brand {
+    color: #fff;
+    text-decoration: none;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.nav-links {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.nav-links a {
+    color: #a0a0c0;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s;
+}
+
+.nav-links a:hover {
+    color: #fff;
+}
+
+/* -- Container -- */
+.container {
+    max-width: 1100px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 2rem;
+    flex: 1;
+}
+
+/* -- Typography -- */
+h1 {
+    font-size: 1.75rem;
+    margin-bottom: 0.5rem;
+    color: #1a1a2e;
+}
+
+h2 {
+    font-size: 1.3rem;
+    margin-top: 2rem;
+    margin-bottom: 0.25rem;
+    color: #1a1a2e;
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 0.25rem;
+}
+
+h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.subtitle {
+    color: #555;
+    margin-bottom: 2rem;
+}
+
+.section-desc {
+    color: #777;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+}
+
+/* -- Cards (landing page) -- */
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+}
+
+.card h2 {
+    margin-top: 0;
+    border-bottom: none;
+    font-size: 1.2rem;
+}
+
+.card p {
+    color: #555;
+    font-size: 0.95rem;
+    flex: 1;
+}
+
+.card ul {
+    margin: 0.75rem 0;
+    padding-left: 1.25rem;
+    font-size: 0.9rem;
+    color: #444;
+}
+
+.card ul li {
+    margin-bottom: 0.25rem;
+}
+
+/* -- Buttons -- */
+.btn {
+    display: inline-block;
+    padding: 0.6rem 1.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s, transform 0.1s;
+    text-align: center;
+    background: #1a1a2e;
+    color: #fff;
+}
+
+.btn:hover {
+    background: #2d2d50;
+    transform: translateY(-1px);
+}
+
+.btn-primary {
+    background: #0d6efd;
+    color: #fff;
+    font-size: 1rem;
+    padding: 0.75rem 2rem;
+}
+
+.btn-primary:hover {
+    background: #0b5ed7;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: #fff;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+/* -- Forms -- */
+.estimate-form {
+    max-width: 700px;
+}
+
+fieldset {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    background: #fff;
+}
+
+legend {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #1a1a2e;
+    padding: 0 0.5rem;
+}
+
+.form-row {
+    margin-bottom: 0.75rem;
+}
+
+.form-row label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+    color: #333;
+}
+
+.form-row input[type="text"],
+.form-row input[type="number"],
+.form-row input[type="file"] {
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.form-row input:focus {
+    outline: none;
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.form-row small {
+    display: block;
+    color: #777;
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+}
+
+.radio-group {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.radio-label {
+    font-weight: 400 !important;
+    cursor: pointer;
+}
+
+/* -- Alerts -- */
+.alert {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.alert-info {
+    background: #e7f3ff;
+    border: 1px solid #b8daff;
+    color: #004085;
+}
+
+.alert-error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.alert a {
+    color: inherit;
+    font-weight: 600;
+}
+
+/* -- Summary Bar -- */
+.summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    background: #fff;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin: 1rem 0;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 140px;
+}
+
+.summary-item .label {
+    font-size: 0.8rem;
+    color: #777;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-item .value {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+/* -- Results Tables -- */
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    margin-bottom: 1.5rem;
+}
+
+.results-table thead {
+    background: #f8f9fa;
+}
+
+.results-table th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.results-table td {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.results-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.results-table .note {
+    color: #888;
+    font-size: 0.8rem;
+}
+
+.results-table .warning {
+    color: #e67e22;
+    font-size: 0.8rem;
+}
+
+/* -- Bid Summary -- */
+.bid-summary {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin: 2rem 0;
+    border-left: 4px solid #198754;
+}
+
+.bid-summary h2 {
+    margin-top: 0;
+    border-bottom: none;
+}
+
+.bid-item {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #eee;
+}
+
+.bid-item h3 {
+    font-size: 0.95rem;
+    color: #333;
+}
+
+.bid-item .note {
+    color: #888;
+    font-size: 0.85rem;
+}
+
+.bid-cost {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #198754;
+}
+
+.bid-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0 0.25rem;
+    border-top: 2px solid #198754;
+    margin-top: 0.5rem;
+}
+
+.bid-total .label {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.bid-total .value {
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: #198754;
+}
+
+.bid-persqft {
+    text-align: right;
+    color: #555;
+    font-size: 0.95rem;
+    margin-top: 0.25rem;
+}
+
+/* -- Detail Cards -- */
+.detail-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.detail-card h3 {
+    margin-bottom: 0.5rem;
+}
+
+.detail-card h3 small {
+    font-weight: 400;
+    color: #888;
+}
+
+.detail-sub {
+    margin: 0.75rem 0;
+    padding-left: 1rem;
+    border-left: 3px solid #e0e0e0;
+}
+
+.detail-sub ul {
+    margin: 0.25rem 0;
+    padding-left: 1.25rem;
+    font-size: 0.9rem;
+}
+
+.tag {
+    display: inline-block;
+    background: #e7f3ff;
+    color: #004085;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin: 0.15rem;
+}
+
+/* -- Actions -- */
+.actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 2rem;
+}
+
+/* -- Footer -- */
+.footer {
+    text-align: center;
+    padding: 1rem;
+    color: #999;
+    font-size: 0.85rem;
+    border-top: 1px solid #e0e0e0;
+    margin-top: 2rem;
+}
+
+/* -- Print Styles -- */
+@media print {
+    .navbar, .footer, .actions, .btn {
+        display: none !important;
+    }
+
+    body {
+        background: #fff;
+        color: #000;
+    }
+
+    .container {
+        max-width: 100%;
+        padding: 0;
+    }
+
+    .summary-bar, .card, .detail-card, .bid-summary, fieldset {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    .results-table {
+        box-shadow: none;
+    }
+
+    .results-table th, .results-table td {
+        border: 1px solid #ccc;
+    }
+}

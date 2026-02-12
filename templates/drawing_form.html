@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Drawing Analysis - LWR{% endblock %}
+
+{% block content %}
+<h1>Drawing Analysis</h1>
+
+{% if step == 1 %}
+<p>Upload architectural PDF drawings for AI-powered analysis using Gemini Vision.</p>
+
+<form method="POST" action="/drawing/upload" enctype="multipart/form-data" class="estimate-form">
+    <fieldset>
+        <legend>Drawing PDF (required)</legend>
+        <div class="form-row">
+            <label for="pdf_file">Architectural Drawing PDF</label>
+            <input type="file" id="pdf_file" name="pdf_file" accept=".pdf" required>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Specification PDF (optional)</legend>
+        <div class="form-row">
+            <label for="spec_file">Spec Document PDF</label>
+            <input type="file" id="spec_file" name="spec_file" accept=".pdf">
+        </div>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary">Upload &amp; Continue</button>
+</form>
+
+{% elif step == 2 %}
+<p>Configure analysis for: <strong>{{ pdf_filename }}</strong> ({{ page_count }} pages)</p>
+{% if spec_filename %}
+<p>Spec PDF: <strong>{{ spec_filename }}</strong> ({{ spec_page_count }} pages)</p>
+{% endif %}
+
+<form method="POST" action="/drawing/analyze" class="estimate-form">
+    <input type="hidden" name="pdf_path" value="{{ pdf_path }}">
+    <input type="hidden" name="spec_path" value="{{ spec_path }}">
+
+    <fieldset>
+        <legend>Page Ranges (1-indexed, comma-separated or ranges like 1-3)</legend>
+        <div class="form-row">
+            <label for="plan_pages">Plan View Pages</label>
+            <input type="text" id="plan_pages" name="plan_pages" placeholder="e.g. 2,3">
+            <small>Pages showing the roof plan view with equipment layout</small>
+        </div>
+        <div class="form-row">
+            <label for="detail_pages">Detail/Section Pages</label>
+            <input type="text" id="detail_pages" name="detail_pages" placeholder="e.g. 4,5,6">
+            <small>Pages showing cross-section details and material assemblies</small>
+        </div>
+        {% if spec_path %}
+        <div class="form-row">
+            <label for="spec_pages">Spec Pages</label>
+            <input type="text" id="spec_pages" name="spec_pages" placeholder="e.g. 40-45">
+            <small>Pages from the specification document</small>
+        </div>
+        {% else %}
+        <input type="hidden" name="spec_pages" value="">
+        {% endif %}
+    </fieldset>
+
+    <fieldset>
+        <legend>Roof Measurements (from scaled drawings)</legend>
+        <div class="form-row">
+            <label for="total_roof_area">Total Roof Area (sqft)</label>
+            <input type="number" id="total_roof_area" name="total_roof_area" step="any" required>
+        </div>
+        <div class="form-row">
+            <label for="perimeter_lf">Roof Perimeter (LF)</label>
+            <input type="number" id="perimeter_lf" name="perimeter_lf" step="any" required>
+        </div>
+        <div class="form-row">
+            <label for="parapet_length_lf">Parapet Length (LF)</label>
+            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="0" placeholder="Defaults to perimeter">
+        </div>
+        <div class="form-row">
+            <label for="parapet_height_ft">Parapet Height (ft)</label>
+            <input type="number" id="parapet_height_ft" name="parapet_height_ft" step="any" value="2.0">
+        </div>
+    </fieldset>
+
+    <div class="alert alert-info">
+        Analysis uses Gemini Vision AI. This may take 1-2 minutes per page. Please wait for the results.
+    </div>
+
+    <button type="submit" class="btn btn-primary">Analyze &amp; Calculate</button>
+</form>
+{% endif %}
+{% endblock %}
