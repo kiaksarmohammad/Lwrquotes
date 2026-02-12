@@ -1,9 +1,11 @@
 from pystac_client import Client
 import planetary_computer as pc
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, ArcGIS
 from geopy.location import Location
+from geopy.exc import GeocoderServiceError
 from shapely.geometry import shape, box, mapping
 import math
+import time
 
 # --- CONFIGURATION ---
 PRICING = {
@@ -17,16 +19,31 @@ PRICING = {
 def get_commercial_footprint(address: str):
     # FIX 1: Ensure we use the standard synchronous Geolocator
     # We do NOT pass an 'adapter_factory' here, ensuring it blocks and returns data, not a coroutine.
-    geolocator = Nominatim(user_agent="commercial_estimator_agent")
+    geolocator = Nominatim(user_agent=f"lwrquotes_roofing_estimator_{int(time.time())}")
     
-    # Because this is synchronous, 'location' will be the actual object, not a Coroutine.
-    location = geolocator.geocode(address)
-    
-    # Check if address was found (isinstance narrows the type for the type checker)
+    location = None
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            location = geolocator.geocode(address)
+            break
+        except GeocoderServiceError as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"Geocoder error (attempt {attempt + 1}/{max_retries}), retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"Nominatim failed after {max_retries} attempts, falling back to ArcGIS...")
+                try:
+                    arcgis = ArcGIS()
+                    location = arcgis.geocode(address)
+                except Exception as fallback_err:
+                    raise ValueError(f"All geocoders failed. Nominatim: {e} | ArcGIS: {fallback_err}")
+
     if not isinstance(location, Location):
         raise ValueError(f"Could not find coordinates for address: {address}")
         
-    print(f"📍 Locate: {address} ({location.latitude}, {location.longitude})")
+    print(f"Locate: {address} ({location.latitude}, {location.longitude})")
     
     # Create search box
     bbox = box(location.longitude - 0.001, location.latitude - 0.001, 
