@@ -32,6 +32,11 @@ BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# Handle Chrome DevTools 404s
+@app.get("/.well-known/appspecific/com.chrome.devtools.json")
+def chrome_devtools_404():
+    raise HTTPException(status_code=404)
+
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "lwrquotes_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 

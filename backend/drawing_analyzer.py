@@ -22,6 +22,7 @@ import sys
 import os
 import io
 import time
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,7 +41,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = "gemini-3-pro-preview"
-RENDER_SCALE = 2.0  # 2x = ~144 DPI for drawing pages
+RENDER_SCALE = 2  # 2x = ~144 DPI for drawing pages
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ RENDER_SCALE = 2.0  # 2x = ~144 DPI for drawing pages
 
 def render_pdf_pages(pdf_path: str,
                      pages: list[int] | None = None,
-                     scale: float = RENDER_SCALE) -> list[tuple[int, Image.Image]]:
+                     scale: int = RENDER_SCALE) -> list[tuple[int, Image.Image]]:
     """
     Render PDF pages to PIL Images.
 
@@ -68,7 +69,7 @@ def render_pdf_pages(pdf_path: str,
     results = []
     for idx in indices:
         if idx < 0 or idx >= total:
-            print(f"  WARNING: Page {idx + 1} out of range (PDF has {total} pages), skipping.")
+            sys.stderr.write(f"  WARNING: Page {idx + 1} out of range (PDF has {total} pages), skipping.\n")
             continue
         page = doc[idx]
         bitmap = page.render(scale=scale)
@@ -116,8 +117,8 @@ MEASUREMENT_PROMPT = """You are a roofing quantity surveyor analyzing a roof pla
 
 Your goal is to extract the primary roof measurements from this drawing.
 
-1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100).
-2. DIMENSIONS: Read the overall dimensions of the building outline.
+1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100). 
+2. DIMENSIONS: Read the overall dimensions of the building outline. This can be calculated using the scale and a reference measurement that will be guranteed to be included in the document
 3. CALCULATE:
    - Total Roof Area (sqft): The total flat roof surface area.
    - Perimeter (LF): The total length of the roof edge.
@@ -164,6 +165,7 @@ For EACH detail or section shown on this drawing page, identify:
 3. All materials/products shown, listed from BOTTOM to TOP (or inside to outside)
 4. For each material, map it to the closest pricing_key from our database
 5. Whether this detail is measured in: sqft, linear_ft, or each
+6. reference measurement can often be found in the details
 
 Our pricing database keys:
 {pricing_keys}
@@ -289,12 +291,12 @@ def _call_gemini(client: genai.Client, model: str, image: Image.Image,
                 model=model,
                 contents=[img_part, prompt],
             )
-            return response.text
+            return response.text or ""
         except Exception as e:
             if attempt < retries - 1:
                 wait = 2 ** (attempt + 1)
-                print(f"    Gemini API error (attempt {attempt + 1}): {e}")
-                print(f"    Retrying in {wait}s...")
+                sys.stderr.write(f"    Gemini API error (attempt {attempt + 1}): {e}\n")
+                sys.stderr.write(f"    Retrying in {wait}s...\n")
                 time.sleep(wait)
             else:
                 raise
@@ -341,7 +343,8 @@ def analyze_details(pdf_path: str, detail_pages: list[int],
             data["source_page"] = page_num
             results.append(data)
         except json.JSONDecodeError:
-            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
+            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
             results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
 
     return results
@@ -362,7 +365,8 @@ def analyze_plan(pdf_path: str, plan_pages: list[int],
             data["source_page"] = page_num
             results.append(data)
         except json.JSONDecodeError:
-            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            sys.stderr.write(f"  WARNING: Could not parse JSON from page {page_num}\n")
+            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
             results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
 
     return results
@@ -371,21 +375,57 @@ def analyze_plan(pdf_path: str, plan_pages: list[int],
 def analyze_spec(pdf_path: str, spec_pages: list[int],
                  client: genai.Client, model: str = DEFAULT_MODEL) -> list[dict]:
     """Analyze specification pages to extract material requirements."""
-    images = render_pdf_pages(pdf_path, spec_pages)
+    
+    # Filter pages for sections 00, 01, 07
+    print(f"Scanning {len(spec_pages)} spec pages for relevant sections (00, 01, 07)...")
+    doc = pdfium.PdfDocument(pdf_path)
+    valid_pages = []
+    
+    for p_num in spec_pages:
+        # p_num is 1-based
+        if p_num < 1 or p_num > len(doc):
+            sys.stderr.write(f"Error: Page {p_num} out of range\n")
+            continue
+            
+        try:
+            page = doc[p_num - 1]
+            text = page.get_textpage().get_text_range()
+            
+            # Check for 00, 01, 07 sections
+            # Matches: "Section 07", "07 52 00", "075200"
+            if re.search(r'\b(00|01|07)[\s-]?\d{2}[\s-]?\d{2}\b', text) or \
+               re.search(r'Section\s+(00|01|07)', text, re.IGNORECASE):
+                valid_pages.append(p_num)
+            else:
+                print(f"  Skipping page {p_num} (not section 00, 01, or 07)")
+        except Exception as e:
+            sys.stderr.write(f"Error reading text from page {p_num}: {e}\n")
+            
+    doc.close()
+    
+    if not valid_pages:
+        print("No relevant spec pages found.")
+        return []
+
+    images = render_pdf_pages(pdf_path, valid_pages)
     prompt = SPEC_PROMPT.format(pricing_keys=_pricing_keys_list())
 
     results = []
     for page_num, img in images:
         print(f"  Analyzing spec page {page_num}...")
-        raw = _call_gemini(client, model, img, prompt)
-        json_str = _extract_json(raw)
+        raw = ""
         try:
+            raw = _call_gemini(client, model, img, prompt)
+            json_str = _extract_json(raw)
             data = json.loads(json_str)
             data["source_page"] = page_num
             results.append(data)
         except json.JSONDecodeError:
-            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            sys.stderr.write(f"ERROR: Could not parse JSON from page {page_num}\n")
+            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
             results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
+        except Exception as e:
+            sys.stderr.write(f"ERROR: Failed to analyze page {page_num}: {e}\n")
 
     return results
 
@@ -408,7 +448,7 @@ def analyze_measurements(pdf_path: str, plan_pages: list[int],
             data["source_page"] = page_num
             candidates.append(data)
         except json.JSONDecodeError:
-            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
     
     return _aggregate_measurements(candidates)
 
@@ -459,7 +499,7 @@ def analyze_parapet_height(pdf_path: str, detail_pages: list[int],
             data["source_page"] = page_num
             candidates.append(data)
         except json.JSONDecodeError:
-            print(f"  WARNING: Could not parse JSON from page {page_num}")
+            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
             
     return _select_best_parapet_height(candidates)
 
@@ -711,8 +751,8 @@ def main():
     if api_key is None:
         api_key = os.environ.get("GEMINI_API_KEY")
     if api_key is None:
-        print("Error: Gemini API key required.")
-        print("  Use --api-key KEY or set GEMINI_API_KEY environment variable.")
+        sys.stderr.write("Error: Gemini API key required.\n")
+        sys.stderr.write("  Use --api-key KEY or set GEMINI_API_KEY environment variable.\n")
         sys.exit(1)
 
     # Handle --all-pages
@@ -722,7 +762,7 @@ def main():
         doc.close()
 
     if not plan_pages and not detail_pages and not spec_pages:
-        print("Error: Specify at least one of --plan-pages, --detail-pages, --spec-pages, or --all-pages")
+        sys.stderr.write("Error: Specify at least one of --plan-pages, --detail-pages, --spec-pages, or --all-pages\n")
         sys.exit(1)
 
     # Initialize Gemini client
