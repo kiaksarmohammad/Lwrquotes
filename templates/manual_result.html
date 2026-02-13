@@ -3,10 +3,10 @@
 {% block title %}Estimate Results - LWR{% endblock %}
 
 {% block content %}
-<h1>Roofing Quantity Takeoff &amp; Cost Estimate</h1>
-<p class="subtitle">Inverted Modified Bitumen (2-Ply SBS) - Soprema System | Spec: Div 07 52 01 / 07 62 00 / 07 92 00</p>
-
 {% set meas = estimate.project_measurements %}
+<h1>Roofing Quantity Takeoff &amp; Cost Estimate</h1>
+<p class="subtitle">{{ meas.roof_system_name }} | Spec: {{ meas.spec }}</p>
+
 <div class="summary-bar">
     <div class="summary-item">
         <span class="label">Roof Area</span>

@@ -16,7 +16,13 @@ import json
 import sys
 from dataclasses import dataclass, field
 
-from backend.database import PRICING
+from backend.database import (
+    PRICING,
+    EPDM_SPECIFIC_MATERIALS,
+    TPO_SPECIFIC_MATERIALS,
+    COMMON_ROOF_MATERIALS,
+    ROOF_SYSTEM_CONFIGS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +100,186 @@ DETAIL_TYPE_MAP = {
 
 
 # ---------------------------------------------------------------------------
+# System-Specific Material Definitions
+# Coverage rates sourced from database.py descriptions
+# ---------------------------------------------------------------------------
+
+# Aggregated material sources for price lookup
+_ALL_MATERIALS = [PRICING, EPDM_SPECIFIC_MATERIALS, TPO_SPECIFIC_MATERIALS, COMMON_ROOF_MATERIALS]
+
+# Price overrides for materials with non-standard pricing models
+_PRICE_OVERRIDES = {
+    # EPS: $0.31/sqft/inch × 16 sqft (4'×4' sheet) × 2.5" thick = $12.40/sheet
+    "EPS_Insulation_EPDM": 12.40,
+}
+
+# Area-based material layers per roof system type
+# Format: (name, pricing_key, unit, sqft_per_unit, area_source, waste_pct, bid_group)
+_SYSTEM_AREA_LAYERS = {
+    "SBS": [
+        ("Asphaltic Primer",
+         "Primer", "pail (5 gal)", 250, "roof_area", 0.05, "roofing"),
+        ("SBS Base Sheet (Sopraply Base 520)",
+         "Base_Membrane", "roll", 100, "roof_area", 0.15, "roofing"),
+        ("SBS Cap Sheet (Sopraply Traffic Cap)",
+         "Cap_Membrane", "roll", 86, "roof_area", 0.15, "roofing"),
+        ("Tapered ISO Insulation (Soprasmart Board 2:1)",
+         "Polyisocyanurate_ISO_Insulation", "sheet (4'x4')", 16, "tapered_area", 0.10, "roofing"),
+        ("XPS Insulation (Sopra-XPS 40 Type 4)",
+         "XPS_Insulation", "sheet (2'x8')", 16, "roof_area", 0.10, "roofing"),
+        ("Drainage Board (Sopradrain EcoVent)",
+         "Drainage_Board", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
+        ("Filter Fabric",
+         "Fleece_Reinforcement_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
+    ],
+    "EPDM_Fully_Adhered": [
+        ("Vapour Barrier (Sopravap'r WG 45\")",
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+        ("ISO Insulation 2.5\" (Sopra-ISO)",
+         "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
+        ("Tapered ISO Insulation (drainage slope)",
+         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
+        ("Densdeck Coverboard 1/2\"",
+         "Densdeck_Half_Inch", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
+        ("EPDM Membrane 60 mil (Carlisle Sure-Seal)",
+         "EPDM_Membrane_60mil", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
+        ("EPDM Bonding Adhesive 90-8-30A",
+         "EPDM_Bonding_Adhesive", "pail (5 gal)", 300, "roof_area", 0.05, "roofing"),
+        ("EPDM Primer HP-250",
+         "EPDM_Primer_HP250", "gallon", 50, "roof_area", 0.05, "roofing"),
+        ("EPDM Seam Tape 3\"x100'",
+         "EPDM_Seam_Tape", "roll (100 lf)", 1000, "roof_area", 0.10, "roofing"),
+    ],
+    "EPDM_Ballasted": [
+        ("Vapour Barrier (Sopravap'r WG 45\")",
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+        ("EPDM Membrane 60 mil (Carlisle Sure-Seal, loose laid)",
+         "EPDM_Membrane_60mil", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
+        ("EPS Insulation Type II (2 layers x 2.5\")",
+         "EPS_Insulation_EPDM", "sheet (4'x4')", 8, "roof_area", 0.10, "roofing"),
+        ("Filter Fabric (Soprafilter)",
+         "EPDM_Filter_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
+        ("Drainage Mat (Sopradrain 15G 6'x50')",
+         "EPDM_Drainage_Mat", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
+        ("EPDM Seam Tape 3\"x100'",
+         "EPDM_Seam_Tape", "roll (100 lf)", 1000, "roof_area", 0.10, "roofing"),
+    ],
+    "TPO_Mechanically_Attached": [
+        ("Vapour Barrier (Sopravap'r WG 45\")",
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+        ("ISO Insulation 2.5\" (Sopra-ISO)",
+         "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
+        ("Tapered ISO Insulation (drainage slope)",
+         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
+        ("Densdeck Coverboard 1/2\"",
+         "Densdeck_Half_Inch", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
+        ("TPO Membrane 60 mil (Sure-Weld)",
+         "TPO_Membrane", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
+        ("Rhinobond Induction Weld Plates",
+         "TPO_Rhinobond_Plate", "pallet", 4000, "roof_area", 0.05, "roofing"),
+        ("TPO Fastening Screws",
+         "TPO_Screws", "box", 4000, "roof_area", 0.05, "roofing"),
+    ],
+    "TPO_Fully_Adhered": [
+        ("Vapour Barrier (Sopravap'r WG 45\")",
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+        ("ISO Insulation 2.5\" (Sopra-ISO)",
+         "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
+        ("Tapered ISO Insulation (drainage slope)",
+         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
+        ("Soprasmart ISO HD 1/2\" (factory laminated coverboard)",
+         "Soprasmart_ISO_HD", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
+        ("TPO Membrane 60 mil (Sure-Weld)",
+         "TPO_Membrane", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
+        ("TPO Bonding Adhesive (SureWeld)",
+         "TPO_Bonding_Adhesive_SureWeld", "pail (5 gal)", 300, "roof_area", 0.05, "roofing"),
+        ("TPO Primer",
+         "TPO_Primer", "gallon", 100, "roof_area", 0.05, "roofing"),
+    ],
+}
+
+# Consumables per system type
+# Format: (name, pricing_key, unit, rate_per_1000sqft, bid_group)
+_SYSTEM_CONSUMABLES = {
+    "SBS": [
+        ("Mastic (Sopramastic)", "Mastic", "pail", 2, "roofing"),
+        ("Elastocol Adhesive", "Adhesive_Elastocol", "pail (19L)", 3, "roofing"),
+        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 6, "flashing"),
+    ],
+    "EPDM_Fully_Adhered": [
+        ("EPDM Lap Sealant", "EPDM_Lap_Sealant", "tube", 4, "roofing"),
+        ("Duotack Foamable Adhesive (insulation bonding)", "Duotack_Adhesive", "case", 2, "roofing"),
+        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+    ],
+    "EPDM_Ballasted": [
+        ("EPDM Lap Sealant", "EPDM_Lap_Sealant", "tube", 4, "roofing"),
+        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+    ],
+    "TPO_Mechanically_Attached": [
+        ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
+        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+    ],
+    "TPO_Fully_Adhered": [
+        ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
+        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+    ],
+}
+
+# System metadata for display and bid multipliers
+_SYSTEM_META = {
+    "SBS": {
+        "display_name": "Inverted Modified Bitumen (2-Ply SBS) - Soprema System",
+        "spec": "Div 07 52 01 / 07 62 00 / 07 92 00",
+        "labour_multiplier": 1.65,
+        "labour_note": "Labour typically 1.5-1.8x material for SBS torch-applied",
+        "mechanical_multiplier": 1.80,
+        "include_ballast_note": True,
+    },
+    "EPDM_Fully_Adhered": {
+        "display_name": "EPDM 60 mil Fully Adhered System",
+        "spec": "Div 07 53 23",
+        "labour_multiplier": 1.55,
+        "labour_note": "Labour typically 1.4-1.6x material for EPDM fully adhered",
+        "mechanical_multiplier": 1.80,
+        "include_ballast_note": False,
+    },
+    "EPDM_Ballasted": {
+        "display_name": "EPDM 60 mil Ballasted / Inverted System",
+        "spec": "Div 07 53 23",
+        "labour_multiplier": 1.40,
+        "labour_note": "Labour typically 1.3-1.5x material for EPDM ballasted",
+        "mechanical_multiplier": 1.70,
+        "include_ballast_note": True,
+    },
+    "TPO_Mechanically_Attached": {
+        "display_name": "TPO 60 mil Mechanically Attached System",
+        "spec": "Div 07 54 23",
+        "labour_multiplier": 1.50,
+        "labour_note": "Labour typically 1.4-1.6x material for TPO mechanically attached",
+        "mechanical_multiplier": 1.80,
+        "include_ballast_note": False,
+    },
+    "TPO_Fully_Adhered": {
+        "display_name": "TPO 60 mil Fully Adhered System",
+        "spec": "Div 07 54 23",
+        "labour_multiplier": 1.65,
+        "labour_note": "Labour typically 1.5-1.8x material for TPO fully adhered",
+        "mechanical_multiplier": 1.80,
+        "include_ballast_note": False,
+    },
+}
+
+# System-specific pipe seal product keys
+_PIPE_SEAL_KEY = {
+    "SBS": ("Pipe_Boot_Seal", "Penetration Seal"),
+    "EPDM_Fully_Adhered": ("EPDM_Pipe_Flashing", "EPDM Pipe Flashing (1\"-6\")"),
+    "EPDM_Ballasted": ("EPDM_Pipe_Flashing", "EPDM Pipe Flashing (1\"-6\")"),
+    "TPO_Mechanically_Attached": ("TPO_Pipe_Boot", "TPO Universal Pipe Boot"),
+    "TPO_Fully_Adhered": ("TPO_Pipe_Boot", "TPO Universal Pipe Boot"),
+}
+
+
+# ---------------------------------------------------------------------------
 # Project Measurements (input from scaled drawings)
 # ---------------------------------------------------------------------------
 
@@ -124,6 +310,9 @@ class RoofMeasurements:
     # --- Optional area overrides ---
     tapered_area_sqft: float | None = None   # area needing tapered ISO (default: full roof)
     ballast_area_sqft: float | None = None   # area getting gravel ballast (default: full roof)
+
+    # --- System type ---
+    roof_system_type: str = "SBS"
 
     @property
     def effective_tapered_area(self) -> float:
@@ -175,13 +364,16 @@ def validate_measurements(m: RoofMeasurements) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _get_price(pricing_key: str) -> float:
-    """Look up avg_price from PRICING dict. Returns 0 if key missing."""
-    entry = PRICING.get(pricing_key)
-    if entry is None:
-        return 0.0
-    if isinstance(entry, dict):
-        return entry.get("avg_price", 0.0)
-    return float(entry)
+    """Look up avg_price from any material dictionary. Returns 0 if key missing."""
+    if pricing_key in _PRICE_OVERRIDES:
+        return _PRICE_OVERRIDES[pricing_key]
+    for source in _ALL_MATERIALS:
+        entry = source.get(pricing_key)
+        if entry is not None:
+            if isinstance(entry, dict):
+                return entry.get("avg_price", 0.0)
+            return float(entry)
+    return 0.0
 
 
 def calculate_takeoff(m: RoofMeasurements) -> dict:
@@ -197,6 +389,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
       - bid_summary: costs grouped by bid form line items
     """
 
+    system = m.roof_system_type
+    meta = _SYSTEM_META.get(system, _SYSTEM_META["SBS"])
+
     results = {
         "project_measurements": {
             "total_roof_area_sqft": m.total_roof_area_sqft,
@@ -206,6 +401,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "tapered_area_sqft": m.effective_tapered_area,
             "ballast_area_sqft": m.effective_ballast_area,
             "total_penetrations": m.total_penetrations,
+            "roof_system_type": system,
+            "roof_system_name": meta["display_name"],
+            "spec": meta["spec"],
         },
         "area_materials": [],
         "linear_materials": [],
@@ -220,23 +418,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # ===================================================================
     # AREA-BASED MATERIALS (membrane, insulation, drainage)
     # ===================================================================
-    area_layers = [
-        # (name, pricing_key, unit, sqft_per_unit, area_source, waste%, bid_group)
-        ("Asphaltic Primer",
-         "Primer", "pail (5 gal)", 250, "roof_area", 0.05, "roofing"),
-        ("SBS Base Sheet (Sopraply Base 520)",
-         "Base_Membrane", "roll", 100, "roof_area", 0.15, "roofing"),
-        ("SBS Cap Sheet (Sopraply Traffic Cap)",
-         "Cap_Membrane", "roll", 86, "roof_area", 0.15, "roofing"),
-        ("Tapered ISO Insulation (Soprasmart Board 2:1)",
-         "Polyisocyanurate_ISO_Insulation", "sheet (4'x4')", 16, "tapered_area", 0.10, "roofing"),
-        ("XPS Insulation (Sopra-XPS 40 Type 4)",
-         "XPS_Insulation", "sheet (2'x8')", 16, "roof_area", 0.10, "roofing"),
-        ("Drainage Board (Sopradrain EcoVent)",
-         "Drainage_Board", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
-        ("Filter Fabric",
-         "Fleece_Reinforcement_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
-    ]
+    area_layers = _SYSTEM_AREA_LAYERS.get(system, _SYSTEM_AREA_LAYERS["SBS"])
 
     for name, pkey, unit, sqft_per_unit, area_src, waste_pct, bid_grp in area_layers:
         if area_src == "roof_area":
@@ -267,18 +449,19 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         if bid_grp == "roofing":
             total_roofing_cost += line_cost
 
-    # Gravel ballast (existing - note only, cost TBD by contractor)
-    results["area_materials"].append({
-        "name": "Gravel Ballast (100mm max / 15 lb/sqft) - existing, redistribute",
-        "base_area_sqft": round(m.effective_ballast_area, 0),
-        "waste_pct": "0%",
-        "quantity": round(m.effective_ballast_area, 0),
-        "unit": "sqft",
-        "unit_price": 0.0,
-        "line_cost": 0.0,
-        "bid_group": "roofing",
-        "note": "Existing ballast. Reduce depth to 100mm max. Disposal/redistribution cost by contractor.",
-    })
+    # Gravel ballast note (only for systems that use ballast)
+    if meta["include_ballast_note"]:
+        results["area_materials"].append({
+            "name": "Gravel Ballast (100mm max / 15 lb/sqft) - existing, redistribute",
+            "base_area_sqft": round(m.effective_ballast_area, 0),
+            "waste_pct": "0%",
+            "quantity": round(m.effective_ballast_area, 0),
+            "unit": "sqft",
+            "unit_price": 0.0,
+            "line_cost": 0.0,
+            "bid_group": "roofing",
+            "note": "Existing ballast. Reduce depth to 100mm max. Disposal/redistribution cost by contractor.",
+        })
 
     # ===================================================================
     # LINEAR-FOOT MATERIALS (flashings, blocking, sheathing)
@@ -323,6 +506,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # ===================================================================
     # UNIT ITEMS (drains, penetration flashings, equipment)
     # ===================================================================
+    pipe_key, pipe_name = _PIPE_SEAL_KEY.get(system, ("Pipe_Boot_Seal", "Penetration Seal"))
     unit_defs = [
         # (name, pricing_key, unit, count_attr, multiplier, bid_group)
         ("Roof Drain Insert (spun aluminum, OMG/Thaler)",
@@ -335,10 +519,10 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
          "Flashing_General", "EA", "sleeper_curb_count", 2, "mechanical"),
         ("Vent Hood Flashing",
          "Gooseneck_Vent", "EA", "vent_hood_count", 1, "roofing"),
-        ("Gas Penetration Seal",
-         "Pipe_Boot_Seal", "EA", "gas_penetration_count", 1, "roofing"),
-        ("Electrical Penetration Seal",
-         "Pipe_Boot_Seal", "EA", "electrical_penetration_count", 1, "roofing"),
+        (f"Gas {pipe_name}",
+         pipe_key, "EA", "gas_penetration_count", 1, "roofing"),
+        (f"Electrical {pipe_name}",
+         pipe_key, "EA", "electrical_penetration_count", 1, "roofing"),
         ("Plumbing Vent Flashing",
          "Plumbing_Vent", "EA", "plumbing_vent_count", 1, "roofing"),
     ]
@@ -370,13 +554,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # ===================================================================
     # CONSUMABLES (primer already above, mastic, sealant, adhesive)
     # ===================================================================
-    consumable_defs = [
-        # (name, pricing_key, unit, pails_per_1000sqft, bid_group)
-        ("Mastic (Sopramastic)", "Mastic", "pail", 2, "roofing"),
-        ("Elastocol Adhesive", "Adhesive_Elastocol", "pail (19L)", 3, "roofing"),
-        ("Polyurethane Sealant (Dymonic 100 / NP1)",
-         "Sealant_General", "tube", 6, "flashing"),
-    ]
+    consumable_defs = _SYSTEM_CONSUMABLES.get(system, _SYSTEM_CONSUMABLES["SBS"])
 
     for name, pkey, unit, rate_per_1000, bid_grp in consumable_defs:
         qty = math.ceil(m.total_roof_area_sqft / 1000 * rate_per_1000)
@@ -400,8 +578,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # ===================================================================
     # BID SUMMARY (matches Div 00 41 00 bid form structure)
     # ===================================================================
-    # Add flashing costs from linear materials
     total_roofing_plus_flashing = total_roofing_cost + total_flashing_cost
+    labour_mult = meta["labour_multiplier"]
+    mech_mult = meta["mechanical_multiplier"]
 
     results["bid_summary"] = {
         "item_1_general_requirements": {
@@ -411,23 +590,23 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "estimated_cost": round(total_roofing_plus_flashing * 0.10, 2),
         },
         "item_2_roofing_assembly_and_flashing": {
-            "description": "Roofing Assembly + Metal Flashing (Div 07 52 01 + 07 62 00)",
+            "description": f"Roofing Assembly + Metal Flashing ({meta['spec']})",
             "material_cost": round(total_roofing_plus_flashing, 2),
-            "labour_multiplier": 1.65,
-            "note": "Labour typically 1.5-1.8x material for SBS torch-applied",
-            "estimated_cost": round(total_roofing_plus_flashing * 1.65, 2),
+            "labour_multiplier": labour_mult,
+            "note": meta["labour_note"],
+            "estimated_cost": round(total_roofing_plus_flashing * labour_mult, 2),
         },
         "item_3_mechanical_support": {
             "description": "Mechanical Support (sleeper curbs, RTU flashings)",
             "material_cost": round(total_mechanical_cost, 2),
-            "labour_multiplier": 1.80,
+            "labour_multiplier": mech_mult,
             "note": "Higher labour ratio for detail work",
-            "estimated_cost": round(total_mechanical_cost * 1.80, 2),
+            "estimated_cost": round(total_mechanical_cost * mech_mult, 2),
         },
         "total_estimate": round(
-            total_roofing_plus_flashing * 0.10 +  # general req
-            total_roofing_plus_flashing * 1.65 +   # roofing + flashing
-            total_mechanical_cost * 1.80,           # mechanical
+            total_roofing_plus_flashing * 0.10 +      # general req
+            total_roofing_plus_flashing * labour_mult + # roofing + flashing
+            total_mechanical_cost * mech_mult,          # mechanical
             2
         ),
     }
@@ -443,10 +622,12 @@ def print_estimate(est: dict) -> None:
     """Pretty-print the quantity takeoff and cost estimate."""
     meas = est["project_measurements"]
 
+    system_name = meas.get("roof_system_name", "Inverted Modified Bitumen (2-Ply SBS) - Soprema System")
+    spec = meas.get("spec", "Div 07 52 01 / 07 62 00 / 07 92 00")
     print("=" * 72)
     print("  ROOFING QUANTITY TAKEOFF & COST ESTIMATE")
-    print("  Inverted Modified Bitumen (2-Ply SBS) - Soprema System")
-    print("  Spec: Div 07 52 01 / 07 62 00 / 07 92 00")
+    print(f"  {system_name}")
+    print(f"  Spec: {spec}")
     print("=" * 72)
 
     print(f"\n  Roof Area     : {meas['total_roof_area_sqft']:,.0f} sqft")

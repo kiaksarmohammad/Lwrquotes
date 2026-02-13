@@ -8,6 +8,20 @@
 
 <form method="POST" action="/manual" class="estimate-form">
     <fieldset>
+        <legend>Roofing System Type</legend>
+        <div class="form-row">
+            <label for="roof_system_type">System</label>
+            <select id="roof_system_type" name="roof_system_type">
+                <option value="SBS">SBS (2-Ply Modified Bitumen) - Soprema</option>
+                <option value="EPDM_Fully_Adhered">EPDM 60 mil Fully Adhered</option>
+                <option value="EPDM_Ballasted">EPDM 60 mil Ballasted / Inverted</option>
+                <option value="TPO_Mechanically_Attached">TPO 60 mil Mechanically Attached</option>
+                <option value="TPO_Fully_Adhered">TPO 60 mil Fully Adhered</option>
+            </select>
+        </div>
+    </fieldset>
+
+    <fieldset>
         <legend>Areas (required)</legend>
         <div class="form-row">
             <label for="total_roof_area">Total Roof Area (sqft)</label>

@@ -1,6 +1,3 @@
-
-
-
 """
 Central database for roofing product keywords and pricing.
 Auto-generated from price_list.xlsx by excel_to_database.py.
@@ -8,8 +5,8 @@ Referenced by file_extractor.py and buildingfootprintquery.py.
 """
 
 # ---------------------------------------------------------------------------
-# Pricing per unit – aggregated from price_list.xlsx
-# Each entry: key → {avg, min, max, count, unit, sample_descriptions}
+# Pricing per unit â€“ aggregated from price_list.xlsx
+# Each entry: key â†’ {avg, min, max, count, unit, sample_descriptions}
 # ---------------------------------------------------------------------------
 PRICING = {
     "DensDeck_Coverboard": {
@@ -330,7 +327,7 @@ PRICING = {
         "max_price": 591.45,
         "count": 16,
         "unit": "Roll",
-        "sample_descriptions": ["HPR® Torch Base", "Propane Tank various", "Sopraply Torch Base 520 1x10"],
+        "sample_descriptions": ["HPRÂ® Torch Base", "Propane Tank various", "Sopraply Torch Base 520 1x10"],
     },
     "Fleece_Reinforcement_Fabric": {
         "canonical_name": "Fleece Reinforcement Fabric",
@@ -491,8 +488,404 @@ PRICING = {
 }
 
 # ---------------------------------------------------------------------------
-# Product keyword database – preserved from original database.py
-# Each entry: regex pattern → canonical product name
+# EPDM ROOF SYSTEM SPECIFIC MATERIALS
+# Based on SBS_Worksheet_4_5.xlsm analysis (Rows 60-81)
+# ---------------------------------------------------------------------------
+EPDM_SPECIFIC_MATERIALS = {
+    "EPDM_Membrane_60mil": {
+        "canonical_name": "EPDM Membrane 60 mil",
+        "category": "Membranes",
+        "avg_price": 1119.86,  # From existing PRICING data
+        "min_price": 571.90,
+        "max_price": 1530.00,
+        "count": 5,
+        "unit": "roll",
+        "size": "10ft x 100ft",
+        "coverage": "1000 sqft per roll",
+        "sample_descriptions": ["Carlisle Sure-Seal 60 mil non-reinforced EPDM 10'", "Carlisle Sure-Seal 60 mil Reinforced EPDM 10'"],
+    },
+    "EPDM_Membrane_45mil": {
+        "canonical_name": "EPDM Membrane 45 mil",
+        "category": "Membranes",
+        "avg_price": 1000.00,
+        "unit": "roll",
+        "size": "10ft x 100ft",
+        "coverage": "1000 sqft per roll",
+        "sample_descriptions": ["Carlisle Sure-Seal 45 mil Reinforced EPDM 10'"],
+    },
+    "EPDM_Filter_Fabric": {
+        "canonical_name": "Filter Fabric (Soprafilter)",
+        "category": "Drainage",
+        "avg_price": 380.25,
+        "unit": "roll",
+        "sample_descriptions": ["Soprafilter drainage fabric"],
+        "notes": "Used in inverted/ballasted EPDM systems",
+    },
+    "EPDM_Drainage_Mat": {
+        "canonical_name": "Drainage Mat (Sopradrain 15G)",
+        "category": "Drainage",
+        "avg_price": 215.70,
+        "unit": "roll",
+        "size": "6ft x 50ft",
+        "coverage": "300 sqft per roll",
+        "sample_descriptions": ["Sopradrain 15G 6x50", "SOPRADRAIN 15-G 6ftX50ft"],
+        "notes": "Critical for inverted EPDM roof drainage",
+    },
+    "EPDM_Seam_Tape": {
+        "canonical_name": "EPDM Seam Tape",
+        "category": "EPDM Accessories",
+        "avg_price": 104.86,
+        "unit": "roll",
+        "size": "3in x 100ft",
+        "coverage": "100 linear feet",
+        "sample_descriptions": ["Securtape Seam Tape 3in.x100ft"],
+        "notes": "Essential for EPDM seam connections",
+    },
+    "EPDM_PS_Corner": {
+        "canonical_name": "EPDM Peel & Stick Corner",
+        "category": "EPDM Accessories",
+        "avg_price": 10.75,
+        "unit": "piece",
+        "sample_descriptions": ["PS IS/OS Corner", "EPDM inside/outside corner"],
+    },
+    "EPDM_Pipe_Flashing": {
+        "canonical_name": "EPDM Pipe Flashing",
+        "category": "EPDM Accessories",
+        "avg_price": 71.65,
+        "unit": "piece",
+        "size": "1in - 6in diameter",
+        "sample_descriptions": ["1in.-6in. PS Pipe Flashing", "CAR PS EPDM M PIPE SEAL 1-6\""],
+    },
+    "EPDM_Curb_Flash": {
+        "canonical_name": "EPDM Curb Flashing",
+        "category": "EPDM Accessories",
+        "avg_price": 438.00,
+        "unit": "roll",
+        "size": "18in or 20in width",
+        "sample_descriptions": ["Curb Flash 20\", 18\""],
+    },
+    "EPDM_RUSS_6": {
+        "canonical_name": "RUSS 6 inch EPDM Accessory",
+        "category": "EPDM Accessories",
+        "avg_price": 307.22,
+        "unit": "roll",
+        "sample_descriptions": ["RUSS 6\""],
+    },
+    "EPDM_Primer_HP250": {
+        "canonical_name": "EPDM HP-250 Primer",
+        "category": "Sealants & Adhesives",
+        "avg_price": 52.55,
+        "unit": "gallon",
+        "coverage": "50 sqft per gallon",
+        "sample_descriptions": ["HP-250 Primer", "EPDM HP-250 primer"],
+        "notes": "EPDM-specific bonding primer",
+    },
+    "EPDM_Bonding_Adhesive": {
+        "canonical_name": "EPDM Bonding Adhesive 90-8-30A",
+        "category": "Sealants & Adhesives",
+        "avg_price": 198.95,
+        "unit": "pail",
+        "size": "5 gallon",
+        "sample_descriptions": ["Bonding Adhesive 90-8-30A (5gal)"],
+        "notes": "Water-based bonding adhesive for EPDM",
+    },
+    "EPDM_Cav_Grip": {
+        "canonical_name": "Cav Grip Adhesive",
+        "category": "Sealants & Adhesives",
+        "avg_price": 1000.00,
+        "unit": "cylinder",
+        "sample_descriptions": ["Cav Grip Cylinder Only"],
+        "notes": "High-strength EPDM adhesive system",
+    },
+    "EPDM_Lap_Sealant": {
+        "canonical_name": "EPDM Lap Sealant",
+        "category": "Sealants & Adhesives",
+        "avg_price": 12.71,
+        "unit": "tube",
+        "coverage": "22 linear feet per tube",
+        "sample_descriptions": ["Lap Sealant", "EPDM lap sealant"],
+    },
+    "EPS_Insulation_EPDM": {
+        "canonical_name": "EPS Insulation (for EPDM Inverted)",
+        "category": "Insulation",
+        "avg_price": 0.31,  # per sqft per inch
+        "unit": "sheet",
+        "size": "4ft x 4ft",
+        "pricing_note": "$0.31 per sqft per inch of thickness",
+        "sample_descriptions": ["EPS Type II", "Expanded Polystyrene"],
+        "notes": "Commonly used in EPDM inverted roof systems",
+    },
+    "XPS_Dow_EPDM": {
+        "canonical_name": "Dow XPS (for EPDM)",
+        "category": "Insulation",
+        "avg_price": 52.48,
+        "unit": "sheet",
+        "sample_descriptions": ["Dow XPS", "Dow Extruded Polystyrene"],
+        "notes": "Alternative to EPS for EPDM inverted systems",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# TPO ROOF SYSTEM SPECIFIC MATERIALS
+# Based on SBS_Worksheet_4_5.xlsm analysis (Rows 83-100)
+# ---------------------------------------------------------------------------
+TPO_SPECIFIC_MATERIALS = {
+    "TPO_Membrane": {
+        "canonical_name": "TPO Membrane",
+        "category": "Membranes",
+        "avg_price": 2865.53,  # From existing PRICING data
+        "min_price": 750.00,
+        "max_price": 7805.00,
+        "count": 57,
+        "unit": "sqft",
+        "size": "10ft x 100ft typical",
+        "sample_descriptions": [".060 mil Sure-weld TPO Membrane 10'", "TREMPLY TPO 45 MIL 120\" X 100'", "Carlisle or IKO InnoviTPO"],
+        "notes": "Heat-welded thermoplastic membrane",
+    },
+    "TPO_Flashing_24in": {
+        "canonical_name": "TPO Flashing 24 inch",
+        "category": "TPO Accessories",
+        "avg_price": 565.00,
+        "unit": "roll",
+        "size": "24in x 50ft",
+        "coverage": "100 sqft per roll",
+        "sample_descriptions": ["TPO Flashing 24\"x50'", "IKO InnoviTPO Flashing 24\""],
+    },
+    "TPO_Flashing_12in": {
+        "canonical_name": "TPO Flashing 12 inch",
+        "category": "TPO Accessories",
+        "avg_price": 285.00,
+        "unit": "roll",
+        "size": "12in x 50ft",
+        "coverage": "50 sqft per roll",
+        "sample_descriptions": ["TPO Flashing 12\"x50'", "IKO InnoviTPO Flashing 12\""],
+    },
+    "TPO_Pipe_Boot": {
+        "canonical_name": "TPO Universal Pipe Boot",
+        "category": "TPO Accessories",
+        "avg_price": 43.25,
+        "unit": "piece",
+        "sample_descriptions": ["InnoviTPO Universal Pipe Boot", "TPO molded pipe boots 3/4\" - 8\""],
+        "notes": "Adjustable for various pipe sizes",
+    },
+    "TPO_Corner": {
+        "canonical_name": "TPO Inside/Outside Corner",
+        "category": "TPO Accessories",
+        "avg_price": 16.75,
+        "unit": "piece",
+        "sample_descriptions": ["TPO In/Out Corner", "TPO inside corners", "TPO outside corners"],
+    },
+    "TPO_Rhinobond_Plate": {
+        "canonical_name": "Rhinobond Plate",
+        "category": "TPO Fasteners",
+        "avg_price": 603.75,
+        "unit": "pallet",
+        "sample_descriptions": ["Rhinobond Plate", "Rhinobond induction welding plates"],
+        "notes": "For mechanically-attached TPO systems",
+    },
+    "TPO_Screws": {
+        "canonical_name": "TPO Fastening Screws",
+        "category": "TPO Fasteners",
+        "avg_price": 375.00,
+        "unit": "box",
+        "sample_descriptions": ["TPO roofing screws", "Deck screws for TPO"],
+    },
+    "TPO_Tuck_Tape": {
+        "canonical_name": "Tuck Tape",
+        "category": "TPO Accessories",
+        "avg_price": 0.96,
+        "unit": "roll",
+        "sample_descriptions": ["Tuck Tape", "TPO detail tape"],
+    },
+    "TPO_Lap_Sealant": {
+        "canonical_name": "TPO Lap Sealant",
+        "category": "Sealants & Adhesives",
+        "avg_price": 12.71,
+        "unit": "tube",
+        "coverage": "22 linear feet per tube",
+        "sample_descriptions": ["Lap Sealant", "TPO lap sealant"],
+    },
+    "TPO_Primer": {
+        "canonical_name": "TPO Primer",
+        "category": "Sealants & Adhesives",
+        "avg_price": 63.50,
+        "unit": "gallon",
+        "coverage": "100 sqft per gallon",
+        "sample_descriptions": ["TPO Primer 1 gal", "TPO bonding primer"],
+        "notes": "Required for TPO membrane bonding",
+    },
+    "TPO_Bonding_Adhesive_SureWeld": {
+        "canonical_name": "TPO Bonding Adhesive SureWeld",
+        "category": "Sealants & Adhesives",
+        "avg_price": 205.60,
+        "unit": "pail",
+        "size": "5 gallon",
+        "sample_descriptions": ["Bonding Adhesive TPO - SureWeld 5 gal", "Carlisle SureWeld adhesive"],
+        "notes": "Water-based bonding adhesive for TPO",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# COMMON MATERIALS (Used in both EPDM and TPO systems)
+# Based on SBS_Worksheet_4_5.xlsm analysis (Rows 17-59)
+# ---------------------------------------------------------------------------
+COMMON_ROOF_MATERIALS = {
+    "Vapour_Barrier_Sopravapor": {
+        "canonical_name": "Sopravap'r WG 45in",
+        "category": "Vapour Barrier",
+        "avg_price": 324.95,
+        "unit": "roll",
+        "size": "45in width",
+        "sample_descriptions": ["Sopravap'r WG 45in", "SOP VAPOR R BASE SHEET 45\" 5Sq"],
+        "notes": "Used in both EPDM and TPO systems",
+    },
+    "Vapour_Barrier_TieIn": {
+        "canonical_name": "Vapour Barrier Tie In",
+        "category": "Vapour Barrier",
+        "avg_price": 50.00,
+        "unit": "allowance",
+        "notes": "Allowance for tying into existing vapour barrier",
+    },
+    "ISO_2_5_inch": {
+        "canonical_name": "2.5 inch ISO Glass",
+        "category": "Insulation",
+        "avg_price": 25.60,
+        "unit": "sheet",
+        "sample_descriptions": ["2.5in. ISO Glass", "SOPRA-ISO 2.5inX4 X4"],
+    },
+    "Tapered_ISO": {
+        "canonical_name": "Tapered Insulation",
+        "category": "Insulation",
+        "avg_price": 3.10,
+        "unit": "sqft",
+        "sample_descriptions": ["Tapered polyisocyanurate", "Custom tapered ISO"],
+        "notes": "For roof drainage - priced per sqft",
+    },
+    "Densdeck_Half_Inch": {
+        "canonical_name": "Densdeck Primed 1/2 inch",
+        "category": "Coverboard",
+        "avg_price": 34.20,
+        "unit": "sheet",
+        "size": "4ft x 8ft",
+        "sample_descriptions": ["Densdeck Primed 1/2in", "1/2\"X4'X8' Densdeck Primed"],
+    },
+    "Soprasmart_ISO_HD": {
+        "canonical_name": "Soprasmart ISO HD 1/2 inch",
+        "category": "Coverboard",
+        "avg_price": 63.55,
+        "unit": "sheet",
+        "sample_descriptions": ["2-1 Soprasmart ISO HD (1/2in)", "Soprasmart Board 2:1"],
+        "notes": "Factory laminated ISO + base membrane",
+    },
+    "Duotack_Adhesive": {
+        "canonical_name": "Duotack Foamable Adhesive",
+        "category": "Sealants & Adhesives",
+        "avg_price": 58.00,
+        "unit": "case",
+        "sample_descriptions": ["Duotack", "Duotack Foamable Adhesive"],
+        "notes": "Typically 2 layers in system",
+    },
+    "Elastocol_Stick": {
+        "canonical_name": "Elastocol Stick 19L",
+        "category": "Sealants & Adhesives",
+        "avg_price": 160.00,
+        "unit": "pail",
+        "size": "19 liter",
+        "sample_descriptions": ["Elastocol Stick (19L)", "Elastocol Stick 19L", "ELASTOCOL 500 (V2024) 19L"],
+        "notes": "Used for both wall and field applications",
+    },
+    "Roof_Tape_IKO": {
+        "canonical_name": "IKO 6 inch Roof Tape",
+        "category": "Roofing Accessories",
+        "avg_price": 27.90,
+        "unit": "roll",
+        "sample_descriptions": ["IKO 6in. Roof Tape (Firetape)"],
+    },
+    "Sopralap_Cover_Strip": {
+        "canonical_name": "Sopralap Cover Strip",
+        "category": "Roofing Accessories",
+        "avg_price": 42.00,
+        "unit": "roll",
+        "sample_descriptions": ["Sopralap (Cover Strip)"],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# ROOF SYSTEM CONFIGURATIONS
+# Complete system specifications for estimating
+# ---------------------------------------------------------------------------
+ROOF_SYSTEM_CONFIGS = {
+    "EPDM_60mil_Fully_Adhered": {
+        "description": "EPDM 60 mil Fully Adhered System",
+        "base_cost_per_sqft": 6.00,
+        "layers": [
+            {"product": "Vapour_Barrier_Sopravapor", "attachment": "glued"},
+            {"product": "ISO_2_5_inch", "layers": 1, "attachment": "adhesive"},
+            {"product": "Densdeck_Half_Inch", "layers": 1, "attachment": "screwed"},
+            {"product": "EPDM_Membrane_60mil", "layers": 1, "attachment": "fully_adhered"},
+        ],
+        "required_materials": [
+            "EPDM_Primer_HP250",
+            "EPDM_Bonding_Adhesive",
+            "EPDM_Seam_Tape",
+            "EPDM_Lap_Sealant",
+        ],
+        "labor_multiplier": 1.2,
+    },
+    "EPDM_60mil_Ballasted": {
+        "description": "EPDM 60 mil Ballasted/Inverted System",
+        "base_cost_per_sqft": 5.50,
+        "layers": [
+            {"product": "Vapour_Barrier_Sopravapor", "attachment": "glued"},
+            {"product": "EPDM_Membrane_60mil", "layers": 1, "attachment": "loose_laid"},
+            {"product": "EPS_Insulation_EPDM", "layers": 2, "attachment": "loose_laid"},
+            {"product": "EPDM_Filter_Fabric", "attachment": "loose_laid"},
+            {"product": "EPDM_Drainage_Mat", "attachment": "loose_laid"},
+        ],
+        "required_materials": [
+            "EPDM_Seam_Tape",
+            "EPDM_Lap_Sealant",
+        ],
+        "notes": "Requires ballast (gravel/pavers) not included in material pricing",
+        "labor_multiplier": 1.0,
+    },
+    "TPO_60mil_Mechanically_Attached": {
+        "description": "TPO 60 mil Mechanically Attached System",
+        "base_cost_per_sqft": 5.50,
+        "layers": [
+            {"product": "Vapour_Barrier_Sopravapor", "attachment": "glued"},
+            {"product": "ISO_2_5_inch", "layers": 1, "attachment": "adhesive"},
+            {"product": "Densdeck_Half_Inch", "layers": 1, "attachment": "screwed"},
+            {"product": "TPO_Membrane", "layers": 1, "attachment": "mechanically_attached"},
+        ],
+        "required_materials": [
+            "TPO_Rhinobond_Plate",
+            "TPO_Screws",
+            "TPO_Lap_Sealant",
+        ],
+        "labor_multiplier": 1.1,
+    },
+    "TPO_60mil_Fully_Adhered": {
+        "description": "TPO 60 mil Fully Adhered System",
+        "base_cost_per_sqft": 6.50,
+        "layers": [
+            {"product": "Vapour_Barrier_Sopravapor", "attachment": "glued"},
+            {"product": "ISO_2_5_inch", "layers": 1, "attachment": "adhesive"},
+            {"product": "Soprasmart_ISO_HD", "layers": 1, "attachment": "adhesive"},
+            {"product": "TPO_Membrane", "layers": 1, "attachment": "fully_adhered"},
+        ],
+        "required_materials": [
+            "TPO_Primer",
+            "TPO_Bonding_Adhesive_SureWeld",
+            "TPO_Lap_Sealant",
+        ],
+        "labor_multiplier": 1.3,
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Product keyword database â€“ preserved from original database.py
+# Each entry: regex pattern â†’ canonical product name
 # ---------------------------------------------------------------------------
 PRODUCT_KEYWORDS: dict[str, dict[str, str]] = {
     "Membranes": {
@@ -675,3 +1068,197 @@ NEW_KEYWORDS_CANDIDATES: dict[str, list[str]] = {
         "Wood Blocking / Lumber",
     ],
 }
+
+# ---------------------------------------------------------------------------
+# DATABASE USAGE DOCUMENTATION
+# ---------------------------------------------------------------------------
+"""
+DATABASE STRUCTURE AND USAGE GUIDE
+===================================
+
+This database now contains four primary sections for roofing material pricing:
+
+1. PRICING (Lines 14-152)
+   - General product pricing aggregated from price_list.xlsx
+   - Contains avg, min, max prices per unit
+   - Covers common materials used across multiple roof types
+
+2. EPDM_SPECIFIC_MATERIALS (Lines 180-310)
+   - Materials exclusive to EPDM roofing systems
+   - Includes membrane, seam tape, primers, adhesives
+   - Critical items: HP-250 primer, seam tape, drainage mat
+
+3. TPO_SPECIFIC_MATERIALS (Lines 312-410)
+   - Materials exclusive to TPO roofing systems
+   - Includes membrane, flashings, Rhinobond plates
+   - Critical items: TPO primer, SureWeld adhesive, heat-welding accessories
+
+4. COMMON_ROOF_MATERIALS (Lines 412-485)
+   - Materials used in both EPDM and TPO systems
+   - Includes vapour barriers, insulation, coverboard
+   - Can be shared across multiple roof configurations
+
+5. ROOF_SYSTEM_CONFIGS (Lines 487-590)
+   - Complete system specifications
+   - Pre-configured layer assemblies
+   - Labor multipliers and base costs per sqft
+
+HOW TO USE THIS DATABASE
+=========================
+
+Example 1: Pricing an EPDM Fully Adhered Roof
+----------------------------------------------
+```python
+from database import EPDM_SPECIFIC_MATERIALS, COMMON_ROOF_MATERIALS, ROOF_SYSTEM_CONFIGS
+
+# Get system configuration
+system = ROOF_SYSTEM_CONFIGS["EPDM_60mil_Fully_Adhered"]
+base_cost = system["base_cost_per_sqft"]  # $6.00/sqft
+
+# Calculate materials for 1000 sqft roof
+roof_area = 1000  # square feet
+
+# Membrane cost
+membrane_price = EPDM_SPECIFIC_MATERIALS["EPDM_Membrane_60mil"]["avg_price"]
+membrane_coverage = 1000  # sqft per roll
+membrane_rolls_needed = roof_area / membrane_coverage
+membrane_cost = membrane_rolls_needed * membrane_price
+
+# Primer cost
+primer = EPDM_SPECIFIC_MATERIALS["EPDM_Primer_HP250"]
+primer_coverage = 50  # sqft per gallon
+primer_gallons = roof_area / primer_coverage
+primer_cost = primer_gallons * primer["avg_price"]
+
+# Seam tape cost (estimate 100 linear feet per 1000 sqft)
+seam_tape = EPDM_SPECIFIC_MATERIALS["EPDM_Seam_Tape"]
+seam_tape_rolls = 1  # 100ft per roll
+seam_tape_cost = seam_tape_rolls * seam_tape["avg_price"]
+
+total_material_cost = membrane_cost + primer_cost + seam_tape_cost
+print(f"Total EPDM materials: ${total_material_cost:,.2f}")
+```
+
+Example 2: Pricing a TPO Mechanically Attached Roof
+----------------------------------------------------
+```python
+from database import TPO_SPECIFIC_MATERIALS, COMMON_ROOF_MATERIALS, ROOF_SYSTEM_CONFIGS
+
+# Get system configuration
+system = ROOF_SYSTEM_CONFIGS["TPO_60mil_Mechanically_Attached"]
+base_cost = system["base_cost_per_sqft"]  # $5.50/sqft
+
+# Calculate for 2000 sqft roof
+roof_area = 2000
+
+# Membrane (priced per sqft in TPO)
+membrane = TPO_SPECIFIC_MATERIALS["TPO_Membrane"]
+membrane_cost = roof_area * (membrane["avg_price"] / 1000)  # Convert to per sqft
+
+# Rhinobond plates
+plates = TPO_SPECIFIC_MATERIALS["TPO_Rhinobond_Plate"]
+plates_per_sqft = 0.8  # typical density
+plates_needed = roof_area * plates_per_sqft
+plates_cost = (plates_needed / 1000) * plates["avg_price"]  # Priced per pallet
+
+total = membrane_cost + plates_cost
+print(f"Total TPO materials: ${total:,.2f}")
+```
+
+Example 3: Comparing EPDM vs TPO for Same Building
+--------------------------------------------------
+```python
+from database import ROOF_SYSTEM_CONFIGS
+
+roof_area = 5000  # square feet
+
+# EPDM system
+epdm = ROOF_SYSTEM_CONFIGS["EPDM_60mil_Fully_Adhered"]
+epdm_material_cost = roof_area * epdm["base_cost_per_sqft"]
+epdm_labor_cost = epdm_material_cost * epdm["labor_multiplier"]
+epdm_total = epdm_material_cost + epdm_labor_cost
+
+# TPO system
+tpo = ROOF_SYSTEM_CONFIGS["TPO_60mil_Mechanically_Attached"]
+tpo_material_cost = roof_area * tpo["base_cost_per_sqft"]
+tpo_labor_cost = tpo_material_cost * tpo["labor_multiplier"]
+tpo_total = tpo_material_cost + tpo_labor_cost
+
+print(f"EPDM Total: ${epdm_total:,.2f}")
+print(f"TPO Total: ${tpo_total:,.2f}")
+print(f"Difference: ${abs(epdm_total - tpo_total):,.2f}")
+```
+
+KEY DIFFERENCES BETWEEN EPDM AND TPO
+=====================================
+
+EPDM Systems:
+- Rubber-based membrane (60 mil or 45 mil)
+- Seams joined with tape and liquid adhesive
+- HP-250 primer required
+- Can be ballasted (inverted) or fully adhered
+- Better for low-slope applications
+- Drainage mat required for ballasted systems
+- Black membrane (heat absorption consideration)
+
+TPO Systems:
+- Thermoplastic membrane (45-60 mil)
+- Seams heat-welded (no tape)
+- TPO-specific primer and adhesive
+- Can be mechanically attached or fully adhered
+- Better reflectivity (white membrane)
+- Rhinobond induction welding option
+- Higher initial cost but potentially longer life
+
+SYSTEM SELECTION CRITERIA
+==========================
+
+Choose EPDM when:
+- Budget-conscious project
+- Low-slope or flat roof
+- Ballasted system preferred
+- Existing EPDM repairs/replacement
+- Less foot traffic expected
+
+Choose TPO when:
+- Energy efficiency priority (white membrane)
+- Higher durability requirements
+- Mechanically-attached preferred
+- Higher foot traffic expected
+- Warranty requirements favor TPO
+
+NOTES ON PRICING
+================
+
+All prices updated as of: June 2025 (per SBS_Worksheet_4_5.xlsm)
+
+Price sources:
+- Sage 2025/2026
+- Proline 2025
+- Convoy April 2023 (some items)
+- Roofmart April 2024
+- Garland 2025
+
+Labor multipliers:
+- EPDM Fully Adhered: 1.2x
+- EPDM Ballasted: 1.0x
+- TPO Mechanically Attached: 1.1x
+- TPO Fully Adhered: 1.3x
+
+These multipliers account for installation complexity, not absolute labor hours.
+
+MAINTENANCE AND UPDATES
+========================
+
+This database should be updated when:
+1. New price lists are received from suppliers
+2. Material specifications change
+3. New products are introduced
+4. Labor rates or multipliers change
+5. System configurations are modified
+
+Contact information for updates:
+- Excel source: SBS_Worksheet_4_5.xlsm
+- Last updated: February 13, 2026
+- Updated by: AI Analysis System
+"""

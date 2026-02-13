@@ -82,6 +82,7 @@ def manual_form(request: Request):
 @app.post("/manual", response_class=HTMLResponse)
 def manual_estimate(
     request: Request,
+    roof_system_type: str = Form("SBS"),
     total_roof_area: float = Form(...),
     perimeter_lf: float = Form(...),
     parapet_length_lf: float = Form(0),
@@ -114,6 +115,7 @@ def manual_estimate(
         plumbing_vent_count=plumbing_vent_count,
         tapered_area_sqft=tapered_area_sqft or None,
         ballast_area_sqft=ballast_area_sqft or None,
+        roof_system_type=roof_system_type,
     )
 
     estimate = calculate_takeoff(m)
