@@ -1,3 +1,6 @@
+
+
+
 """
 Central database for roofing product keywords and pricing.
 Auto-generated from price_list.xlsx by excel_to_database.py.
