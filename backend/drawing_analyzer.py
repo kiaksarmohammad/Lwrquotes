@@ -23,6 +23,8 @@ import os
 import io
 import time
 import re
+import concurrent.futures
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -320,6 +322,25 @@ def _extract_json(text: str) -> str:
     return text
 
 
+def _analyze_single_page(page_num: int, img: Image.Image, client: genai.Client, 
+                         model: str, prompt: str) -> dict:
+    """Helper to analyze a single page in a thread."""
+    print(f"  Analyzing page {page_num}...")
+    raw = ""
+    try:
+        raw = _call_gemini(client, model, img, prompt)
+        json_str = _extract_json(raw)
+        data = json.loads(json_str)
+        data["source_page"] = page_num
+        return data
+    except json.JSONDecodeError:
+        sys.stderr.write(f"  WARNING: Could not parse JSON from page {page_num}\n")
+        return {"source_page": page_num, "raw_response": raw, "parse_error": True}
+    except Exception as e:
+        sys.stderr.write(f"  ERROR: Page {page_num} exception: {e}\n")
+        return {"source_page": page_num, "error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # Analysis functions
 # ---------------------------------------------------------------------------
@@ -334,20 +355,15 @@ def analyze_details(pdf_path: str, detail_pages: list[int],
     )
 
     results = []
-    for page_num, img in images:
-        print(f"  Analyzing details on page {page_num}...")
-        raw = _call_gemini(client, model, img, prompt)
-        json_str = _extract_json(raw)
-        try:
-            data = json.loads(json_str)
-            data["source_page"] = page_num
-            results.append(data)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
-            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
-            results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(_analyze_single_page, p, i, client, model, prompt)
+            for p, i in images
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
 
-    return results
+    return sorted(results, key=lambda x: x.get("source_page", 0))
 
 
 def analyze_plan(pdf_path: str, plan_pages: list[int],
@@ -356,20 +372,15 @@ def analyze_plan(pdf_path: str, plan_pages: list[int],
     images = render_pdf_pages(pdf_path, plan_pages)
 
     results = []
-    for page_num, img in images:
-        print(f"  Analyzing plan on page {page_num}...")
-        raw = _call_gemini(client, model, img, PLAN_PROMPT)
-        json_str = _extract_json(raw)
-        try:
-            data = json.loads(json_str)
-            data["source_page"] = page_num
-            results.append(data)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"  WARNING: Could not parse JSON from page {page_num}\n")
-            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
-            results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(_analyze_single_page, p, i, client, model, PLAN_PROMPT)
+            for p, i in images
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
 
-    return results
+    return sorted(results, key=lambda x: x.get("source_page", 0))
 
 
 def analyze_spec(pdf_path: str, spec_pages: list[int],
@@ -411,23 +422,15 @@ def analyze_spec(pdf_path: str, spec_pages: list[int],
     prompt = SPEC_PROMPT.format(pricing_keys=_pricing_keys_list())
 
     results = []
-    for page_num, img in images:
-        print(f"  Analyzing spec page {page_num}...")
-        raw = ""
-        try:
-            raw = _call_gemini(client, model, img, prompt)
-            json_str = _extract_json(raw)
-            data = json.loads(json_str)
-            data["source_page"] = page_num
-            results.append(data)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"ERROR: Could not parse JSON from page {page_num}\n")
-            sys.stderr.write(f"  RAW RESPONSE: {raw}\n")
-            results.append({"source_page": page_num, "raw_response": raw, "parse_error": True})
-        except Exception as e:
-            sys.stderr.write(f"ERROR: Failed to analyze page {page_num}: {e}\n")
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(_analyze_single_page, p, i, client, model, prompt)
+            for p, i in images
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
 
-    return results
+    return sorted(results, key=lambda x: x.get("source_page", 0))
 
 
 def analyze_measurements(pdf_path: str, plan_pages: list[int],
@@ -439,16 +442,13 @@ def analyze_measurements(pdf_path: str, plan_pages: list[int],
     images = render_pdf_pages(pdf_path, plan_pages)
     
     candidates = []
-    for page_num, img in images:
-        print(f"  Measuring plan on page {page_num}...")
-        raw = _call_gemini(client, model, img, MEASUREMENT_PROMPT)
-        json_str = _extract_json(raw)
-        try:
-            data = json.loads(json_str)
-            data["source_page"] = page_num
-            candidates.append(data)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(_analyze_single_page, p, i, client, model, MEASUREMENT_PROMPT)
+            for p, i in images
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            candidates.append(future.result())
     
     return _aggregate_measurements(candidates)
 
@@ -490,16 +490,13 @@ def analyze_parapet_height(pdf_path: str, detail_pages: list[int],
     images = render_pdf_pages(pdf_path, detail_pages)
     
     candidates = []
-    for page_num, img in images:
-        print(f"  Checking parapet height on page {page_num}...")
-        raw = _call_gemini(client, model, img, PARAPET_HEIGHT_PROMPT)
-        json_str = _extract_json(raw)
-        try:
-            data = json.loads(json_str)
-            data["source_page"] = page_num
-            candidates.append(data)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"  ERROR: Could not parse JSON from page {page_num}\n")
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(_analyze_single_page, p, i, client, model, PARAPET_HEIGHT_PROMPT)
+            for p, i in images
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            candidates.append(future.result())
             
     return _select_best_parapet_height(candidates)
 
@@ -592,17 +589,26 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
         "spec_analysis": [],
     }
 
-    if plan_pages:
-        print(f"\n[PLAN VIEWS] Analyzing pages {plan_pages}...")
-        result["plan_analysis"] = analyze_plan(pdf_path, plan_pages, client, model)
-
-    if detail_pages:
-        print(f"\n[DETAIL VIEWS] Analyzing pages {detail_pages}...")
-        result["detail_analysis"] = analyze_details(pdf_path, detail_pages, client, model)
-
-    if spec_pdf and spec_pages:
-        print(f"\n[SPECIFICATIONS] Analyzing pages {spec_pages} from {spec_pdf}...")
-        result["spec_analysis"] = analyze_spec(spec_pdf, spec_pages, client, model)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {}
+        if plan_pages:
+            print(f"\n[PLAN VIEWS] Analyzing pages {plan_pages}...")
+            futures[executor.submit(analyze_plan, pdf_path, plan_pages, client, model)] = "plan_analysis"
+        
+        if detail_pages:
+            print(f"\n[DETAIL VIEWS] Analyzing pages {detail_pages}...")
+            futures[executor.submit(analyze_details, pdf_path, detail_pages, client, model)] = "detail_analysis"
+            
+        if spec_pdf and spec_pages:
+            print(f"\n[SPECIFICATIONS] Analyzing pages {spec_pages} from {spec_pdf}...")
+            futures[executor.submit(analyze_spec, spec_pdf, spec_pages, client, model)] = "spec_analysis"
+            
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                result[key] = future.result()
+            except Exception as e:
+                sys.stderr.write(f"Error in {key}: {e}\n")
 
     return result
 

@@ -133,7 +133,7 @@ def address_form(request: Request):
 
 
 @app.post("/address", response_class=HTMLResponse)
-def address_estimate(
+async def address_estimate(
     request: Request,
     address: str = Form(...),
     system_type: str = Form("TPO"),
@@ -141,8 +141,15 @@ def address_estimate(
 ):
     try:
         from backend.buildingfootprintquery import get_commercial_footprint, estimate_flat_roof
+        import asyncio
 
-        polygon = get_commercial_footprint(address)
+        loop = asyncio.get_running_loop()
+        
+        # Run geocoding and footprint query in a thread pool
+        polygon = await loop.run_in_executor(
+            None, get_commercial_footprint, address
+        )
+        
         result = estimate_flat_roof(
             polygon, system_type=system_type, parapet_height_ft=parapet_height
         )
@@ -222,7 +229,7 @@ def drawing_upload(
 
 
 @app.post("/drawing/measure", response_class=HTMLResponse)
-def drawing_measure(
+async def drawing_measure(
     request: Request,
     pdf_path: str = Form(...),
     plan_pages: str = Form(""),
@@ -243,6 +250,8 @@ def drawing_measure(
             _parse_page_list
         )
         from google import genai
+        import asyncio
+        import concurrent.futures
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -253,8 +262,24 @@ def drawing_measure(
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
 
-        # Step 1: Measure Plan Pages (Area, Perimeter, Parapet Length)
-        measurements = {
+        loop = asyncio.get_running_loop()
+        
+        # Run measurements and parapet height analysis in parallel
+        measurements_task = None
+        parapet_height_task = None
+
+        if plan_pg:
+            measurements_task = loop.run_in_executor(
+                None, analyze_measurements, pdf_path, plan_pg, client
+            )
+        
+        if detail_pg:
+            parapet_height_task = loop.run_in_executor(
+                None, analyze_parapet_height, pdf_path, detail_pg, client
+            )
+
+        # Wait for both tasks to complete
+        measurements = await measurements_task if measurements_task else {
             "scale": "Unknown",
             "total_roof_area_sqft": 0.0,
             "perimeter_lf": 0.0,
@@ -262,17 +287,12 @@ def drawing_measure(
             "confidence": "low",
             "notes": "No plan pages selected."
         }
-        if plan_pg:
-            measurements = analyze_measurements(pdf_path, plan_pg, client)
 
-        # Step 2: Measure Detail Pages (Parapet Height)
-        parapet_height = {
+        parapet_height = await parapet_height_task if parapet_height_task else {
             "parapet_height_ft": 2.0,
             "confidence": "low",
             "notes": "No detail pages selected."
         }
-        if detail_pg:
-            parapet_height = analyze_parapet_height(pdf_path, detail_pg, client)
 
         return templates.TemplateResponse("drawing_form.html", {
             "request": request,
@@ -314,7 +334,7 @@ def drawing_measure(
 
 
 @app.post("/drawing/analyze", response_class=HTMLResponse)
-def drawing_analyze(
+async def drawing_analyze(
     request: Request,
     pdf_path: str = Form(...),
     plan_pages: str = Form(""),
@@ -340,6 +360,7 @@ def drawing_analyze(
             calculate_detail_takeoff,
             calculate_takeoff,
         )
+        import asyncio
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -354,13 +375,19 @@ def drawing_analyze(
         if not plan_pg and not detail_pg and not spec_pg:
             raise ValueError("Specify at least one of: plan pages, detail pages, or spec pages")
 
-        analysis = analyze_drawing(
-            pdf_path=pdf_path,
-            client=client,
-            plan_pages=plan_pg,
-            detail_pages=detail_pg,
-            spec_pdf=spec_path if spec_path else None,
-            spec_pages=spec_pg,
+        loop = asyncio.get_running_loop()
+        
+        # Run analysis in a thread pool to avoid blocking the event loop
+        analysis = await loop.run_in_executor(
+            None,
+            lambda: analyze_drawing(
+                pdf_path=pdf_path,
+                client=client,
+                plan_pages=plan_pg,
+                detail_pages=detail_pg,
+                spec_pdf=spec_path if spec_path else None,
+                spec_pages=spec_pg,
+            )
         )
 
         measurements = measurements_from_analysis(
