@@ -1,3 +1,0 @@
-#TODO
-#1. make sure there are different methods of calculation based on whether the roof is SBS, TPO etc...
-#2. store previous predictions in database.py
