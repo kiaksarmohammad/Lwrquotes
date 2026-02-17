@@ -357,6 +357,10 @@ async def drawing_measure(
     spec_path: str = Form(""),
     spec_pages: str = Form(""),
 ):
+    import logging
+    import time as _time
+    logger = logging.getLogger("drawing_measure")
+
     # Path traversal protection
     if not pdf_path.startswith(str(UPLOAD_DIR)):
         raise HTTPException(status_code=400, detail="Invalid file path")
@@ -382,8 +386,11 @@ async def drawing_measure(
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
 
+        logger.info(f"/drawing/measure called — plan_pages={plan_pg}, detail_pages={detail_pg}")
+        t0 = _time.time()
+
         loop = asyncio.get_running_loop()
-        
+
         # Run measurements and parapet height analysis in parallel
         measurements_task = None
         parapet_height_task = None
@@ -392,7 +399,7 @@ async def drawing_measure(
             measurements_task = loop.run_in_executor(
                 None, analyze_measurements, pdf_path, plan_pg, client
             )
-        
+
         if detail_pg:
             parapet_height_task = loop.run_in_executor(
                 None, analyze_parapet_height, pdf_path, detail_pg, client
@@ -414,6 +421,11 @@ async def drawing_measure(
             "notes": "No detail pages selected."
         }
 
+        elapsed = _time.time() - t0
+        logger.info(f"/drawing/measure completed in {elapsed:.1f}s — "
+                     f"area={measurements.get('total_roof_area_sqft')}, "
+                     f"parapet_ht={parapet_height.get('parapet_height_ft')}")
+
         return templates.TemplateResponse("drawing_form.html", {
             "request": request,
             "step": 3,
@@ -427,6 +439,7 @@ async def drawing_measure(
         })
 
     except Exception as e:
+        logger.error(f"/drawing/measure FAILED: {type(e).__name__}: {e}", exc_info=True)
         # Fallback to manual entry on error
         return templates.TemplateResponse("drawing_form.html", {
             "request": request,

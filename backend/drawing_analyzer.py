@@ -23,6 +23,7 @@ import os
 import io
 import time
 import re
+import logging
 import concurrent.futures
 import asyncio
 from pathlib import Path
@@ -38,12 +39,16 @@ from backend.database import PRICING, PRODUCT_KEYWORDS
 # Load .env file (GEMINI_API_KEY, etc.)
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = "gemini-3-pro-preview"
 RENDER_SCALE = 2  # 2x = ~144 DPI for drawing pages
+MAX_GEMINI_WORKERS = 2  # Limit concurrent Gemini API calls to avoid rate limits
 
 
 # ---------------------------------------------------------------------------
@@ -288,19 +293,25 @@ def _call_gemini(client: genai.Client, model: str, image: Image.Image,
     img_part = _image_to_part(image)
 
     for attempt in range(retries):
+        t0 = time.time()
         try:
+            logger.info(f"  Gemini API call attempt {attempt + 1}/{retries} (model={model})...")
             response = client.models.generate_content(
                 model=model,
                 contents=[img_part, prompt],
             )
+            elapsed = time.time() - t0
+            logger.info(f"  Gemini API responded in {elapsed:.1f}s ({len(response.text or '')} chars)")
             return response.text or ""
         except Exception as e:
+            elapsed = time.time() - t0
             if attempt < retries - 1:
                 wait = 2 ** (attempt + 1)
-                sys.stderr.write(f"    Gemini API error (attempt {attempt + 1}): {e}\n")
-                sys.stderr.write(f"    Retrying in {wait}s...\n")
+                logger.warning(f"  Gemini API error after {elapsed:.1f}s (attempt {attempt + 1}): {type(e).__name__}: {e}")
+                logger.info(f"  Retrying in {wait}s...")
                 time.sleep(wait)
             else:
+                logger.error(f"  Gemini API failed after {retries} attempts: {type(e).__name__}: {e}")
                 raise
     raise RuntimeError("Gemini API failed")
 
@@ -322,22 +333,28 @@ def _extract_json(text: str) -> str:
     return text
 
 
-def _analyze_single_page(page_num: int, img: Image.Image, client: genai.Client, 
+def _analyze_single_page(page_num: int, img: Image.Image, client: genai.Client,
                          model: str, prompt: str) -> dict:
     """Helper to analyze a single page in a thread."""
-    print(f"  Analyzing page {page_num}...")
+    logger.info(f"Page {page_num}: starting analysis...")
+    t0 = time.time()
     raw = ""
     try:
         raw = _call_gemini(client, model, img, prompt)
         json_str = _extract_json(raw)
         data = json.loads(json_str)
         data["source_page"] = page_num
+        elapsed = time.time() - t0
+        logger.info(f"Page {page_num}: completed successfully in {elapsed:.1f}s")
         return data
-    except json.JSONDecodeError:
-        sys.stderr.write(f"  WARNING: Could not parse JSON from page {page_num}\n")
+    except json.JSONDecodeError as e:
+        elapsed = time.time() - t0
+        logger.warning(f"Page {page_num}: JSON parse error after {elapsed:.1f}s: {e}")
+        logger.debug(f"Page {page_num}: raw response was: {raw[:500]}")
         return {"source_page": page_num, "raw_response": raw, "parse_error": True}
     except Exception as e:
-        sys.stderr.write(f"  ERROR: Page {page_num} exception: {e}\n")
+        elapsed = time.time() - t0
+        logger.error(f"Page {page_num}: failed after {elapsed:.1f}s: {type(e).__name__}: {e}")
         return {"source_page": page_num, "error": str(e)}
 
 
@@ -355,7 +372,7 @@ def analyze_details(pdf_path: str, detail_pages: list[int],
     )
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
             executor.submit(_analyze_single_page, p, i, client, model, prompt)
             for p, i in images
@@ -372,7 +389,7 @@ def analyze_plan(pdf_path: str, plan_pages: list[int],
     images = render_pdf_pages(pdf_path, plan_pages)
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
             executor.submit(_analyze_single_page, p, i, client, model, PLAN_PROMPT)
             for p, i in images
@@ -422,7 +439,7 @@ def analyze_spec(pdf_path: str, spec_pages: list[int],
     prompt = SPEC_PROMPT.format(pricing_keys=_pricing_keys_list())
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
             executor.submit(_analyze_single_page, p, i, client, model, prompt)
             for p, i in images
@@ -439,17 +456,22 @@ def analyze_measurements(pdf_path: str, plan_pages: list[int],
     Analyze plan pages to extract roof measurements (Area, Perimeter, Parapet Length).
     Returns the result from the highest-confidence page.
     """
+    logger.info(f"[MEASUREMENTS] Starting analysis of plan pages {plan_pages}...")
+    t0 = time.time()
     images = render_pdf_pages(pdf_path, plan_pages)
-    
+    logger.info(f"[MEASUREMENTS] Rendered {len(images)} page(s) in {time.time() - t0:.1f}s")
+
     candidates = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
             executor.submit(_analyze_single_page, p, i, client, model, MEASUREMENT_PROMPT)
             for p, i in images
         ]
         for future in concurrent.futures.as_completed(futures):
             candidates.append(future.result())
-    
+
+    elapsed = time.time() - t0
+    logger.info(f"[MEASUREMENTS] Completed in {elapsed:.1f}s ({len(candidates)} result(s))")
     return _aggregate_measurements(candidates)
 
 
@@ -487,17 +509,22 @@ def analyze_parapet_height(pdf_path: str, detail_pages: list[int],
     Analyze detail pages to find parapet height.
     Returns the result from the highest-confidence page.
     """
+    logger.info(f"[PARAPET HEIGHT] Starting analysis of detail pages {detail_pages}...")
+    t0 = time.time()
     images = render_pdf_pages(pdf_path, detail_pages)
-    
+    logger.info(f"[PARAPET HEIGHT] Rendered {len(images)} page(s) in {time.time() - t0:.1f}s")
+
     candidates = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
             executor.submit(_analyze_single_page, p, i, client, model, PARAPET_HEIGHT_PROMPT)
             for p, i in images
         ]
         for future in concurrent.futures.as_completed(futures):
             candidates.append(future.result())
-            
+
+    elapsed = time.time() - t0
+    logger.info(f"[PARAPET HEIGHT] Completed in {elapsed:.1f}s ({len(candidates)} result(s))")
     return _select_best_parapet_height(candidates)
 
 
@@ -589,7 +616,7 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
         "spec_analysis": [],
     }
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = {}
         if plan_pages:
             print(f"\n[PLAN VIEWS] Analyzing pages {plan_pages}...")
