@@ -100,6 +100,267 @@ DETAIL_TYPE_MAP = {
 
 
 # ---------------------------------------------------------------------------
+# New Takeoff Data Structures (Excel: Takeoff Sheet parity)
+# ---------------------------------------------------------------------------
+
+PERIMETER_TYPES = {
+    "parapet_no_facing": "Parapet w/o Facing",
+    "parapet_w_facing": "Parapet w/ Facing",
+    "interior_wall": "Interior Wall",
+    "cant": "Cant",
+    "divider_w_facing": "Divider w/ Facing",
+}
+
+# Vent labour hours lookup (Excel: Takeoff H43-H48)
+# Keys: base hours + adjustment per difficulty variant
+VENT_LABOUR_HOURS = {
+    "pipe_boot":  {"base": 1.0, "Normal": 0.0, "Hard": 1.0},
+    "b_vent":     {"base": 3.0, "No_Curb": 0.0, "Curb": 2.0},
+    "hood_vent":  {"base": 4.0, "Normal": -1.0, "Hard": 1.0},
+    "plumb_vent": {"base": 1.5, "Normal": 0.0, "Hard": 0.5},
+    "gum_box":    {"base": 3.0, "Normal": 0.0, "Hard": 1.0},
+    "scupper":    {"base": 2.0, "Easy": -0.5, "Normal": 0.0, "Hard": 1.0},
+    "radon_pipe": {"base": 1.5, "Normal": 0.0, "Hard": 0.5},
+    "drain":      {"base": 2.0, "Drop_Drain": -1.0, "Normal": 0.0, "Mech_Attachment": 1.0},
+}
+
+# Metal flashing pricing keys by type
+METAL_FLASHING_TYPES = {
+    "galvanized":  "Metal_Flashing_Galvanized",
+    "prepainted":  "Metal_Flashing_Prepainted",
+    "cladding":    "Metal_Cladding_Panel",
+}
+
+# Wood product pricing keys (Excel: FRS R115-R120)
+WOOD_PRODUCT_KEYS = {
+    "cant_4x4":   "Cant_Strip_4x4",
+    "lumber_2x4": "Lumber_2x4",
+    "lumber_2x6": "Lumber_2x6",
+    "lumber_2x10": "Lumber_2x10",
+    "plywood_3_4": "Plywood_Three_Quarter",
+    "plywood_1_2": "Plywood_Half",
+}
+
+
+@dataclass
+class RoofSection:
+    """Individual flat roof section (Excel: Takeoff R5-R14).
+    Up to 6 sections, each with count x length x width."""
+    name: str = ""
+    count: int = 1
+    length_ft: float = 0.0
+    width_ft: float = 0.0
+
+    @property
+    def area_sqft(self) -> float:
+        return self.count * self.length_ft * self.width_ft
+
+
+@dataclass
+class CurbDetail:
+    """Dimensioned curb (Excel: Takeoff R31-R37).
+    Types: RTU, Roof_Hatch, Vent_Curb, Skylight."""
+    curb_type: str = "RTU"
+    count: int = 0
+    length_in: float = 48.0
+    width_in: float = 48.0
+    height_in: float = 18.0
+
+    @property
+    def perimeter_lf_each(self) -> float:
+        return 2 * (self.length_in + self.width_in) / 12.0
+
+    @property
+    def total_perimeter_lf(self) -> float:
+        return self.perimeter_lf_each * self.count
+
+    @property
+    def flashing_sqft_each(self) -> float:
+        return self.perimeter_lf_each * (self.height_in / 12.0)
+
+    @property
+    def total_flashing_sqft(self) -> float:
+        return self.flashing_sqft_each * self.count
+
+    @property
+    def labour_hours_per_curb(self) -> float:
+        """Height-dependent labour (Excel: Takeoff I32-I36)."""
+        if self.height_in < 25:
+            return 2.0
+        elif self.height_in <= 69:
+            return 4.0
+        else:
+            return 6.0
+
+    @property
+    def total_labour_hours(self) -> float:
+        return self.labour_hours_per_curb * self.count
+
+
+@dataclass
+class PerimeterSection:
+    """One perimeter section A-E (Excel: Takeoff R52-R58).
+    Each section has its own type, height, LF, and difficulty."""
+    name: str = "A"
+    perimeter_type: str = "parapet_no_facing"
+    height_in: float = 24.0
+    lf: float = 0.0
+    fabrication_difficulty: str = "Normal"
+    install_difficulty: str = "Normal"
+
+    @property
+    def strip_girth_in(self) -> float:
+        """Membrane strip girth in inches (Excel: Takeoff G53-G57)."""
+        h = self.height_in
+        if self.perimeter_type == "parapet_no_facing":
+            return h + 16   # 12" base run-out + 4" top
+        elif self.perimeter_type == "parapet_w_facing":
+            return h + 20   # 12" base + 8" top (facing overlap)
+        elif self.perimeter_type == "interior_wall":
+            return h + 16   # 12" base + 4" counter flash
+        elif self.perimeter_type == "cant":
+            return math.sqrt(2) * h + 12  # diagonal + 12" base
+        elif self.perimeter_type == "divider_w_facing":
+            return 2 * h + 12  # both sides + base
+        return h + 16
+
+    @property
+    def strip_sqft(self) -> float:
+        return (self.strip_girth_in / 12.0) * self.lf
+
+    @property
+    def metal_girth_in(self) -> float:
+        """Metal flashing girth in inches (Excel: Takeoff H53-H57)."""
+        h = self.height_in
+        if self.perimeter_type == "parapet_no_facing":
+            return h + 6    # 4" cap overlap + 2" hem
+        elif self.perimeter_type == "parapet_w_facing":
+            return 2 * h + 4  # cap covers both sides
+        elif self.perimeter_type == "interior_wall":
+            return h + 4
+        elif self.perimeter_type == "cant":
+            return 0         # no metal on cant
+        elif self.perimeter_type == "divider_w_facing":
+            return 2 * h + 8  # metal cap both sides
+        return h + 6
+
+    @property
+    def metal_sqft(self) -> float:
+        return (self.metal_girth_in / 12.0) * self.lf
+
+    @property
+    def metal_sheet_count(self) -> int:
+        """Number of 10ft metal sheets needed."""
+        if self.metal_girth_in == 0 or self.lf == 0:
+            return 0
+        return math.ceil(self.lf / 10.0)
+
+    @property
+    def top_of_parapet(self) -> bool:
+        return self.perimeter_type in (
+            "parapet_no_facing", "parapet_w_facing", "divider_w_facing"
+        )
+
+    @property
+    def install_hours_per_sheet(self) -> float:
+        rates = {"Easy": 0.5, "Normal": 0.75, "Hard": 1.0}
+        return rates.get(self.install_difficulty, 0.75)
+
+    @property
+    def fabrication_hours_per_sheet(self) -> float:
+        rates = {"Easy": 0.25, "Normal": 0.5, "Hard": 0.75}
+        return rates.get(self.fabrication_difficulty, 0.5)
+
+    @property
+    def wood_face_sqft(self) -> float:
+        """Wood facing area (only for types with facing)."""
+        if self.perimeter_type in ("parapet_w_facing", "divider_w_facing"):
+            return (self.height_in / 12.0) * self.lf
+        return 0.0
+
+
+@dataclass
+class VentItem:
+    """Individual vent with type and difficulty (Excel: Takeoff R40-R50)."""
+    vent_type: str = "pipe_boot"
+    count: int = 0
+    difficulty: str = "Normal"
+
+    @property
+    def hours_per_unit(self) -> float:
+        info = VENT_LABOUR_HOURS.get(self.vent_type, {"base": 1.5})
+        base = info["base"]
+        adj = info.get(self.difficulty, 0.0)
+        return base + adj
+
+    @property
+    def total_hours(self) -> float:
+        return self.hours_per_unit * self.count
+
+
+@dataclass
+class WoodWorkSection:
+    """Wood work section (Excel: Takeoff R67-R76)."""
+    name: str = ""
+    wood_type: str = "vertical"  # vertical, horizontal, plywood
+    height_ft: float = 0.0
+    lf: float = 0.0
+    spacing_in: float = 16.0
+    layers: int = 1
+    lumber_size: str = "lumber_2x4"  # key into WOOD_PRODUCT_KEYS
+
+    @property
+    def quantity(self) -> float:
+        """Number of pieces or sheets needed."""
+        if self.wood_type == "plywood":
+            return math.ceil((self.height_ft * self.lf) / 32.0) * self.layers
+        elif self.wood_type == "vertical":
+            if self.spacing_in <= 0:
+                return 0
+            return math.ceil(self.lf / (self.spacing_in / 12.0)) * self.layers
+        else:  # horizontal
+            if self.spacing_in <= 0:
+                return 0
+            rows = math.ceil(self.height_ft / (self.spacing_in / 12.0))
+            return math.ceil(self.lf / 8.0) * rows * self.layers
+
+
+@dataclass
+class BattInsulationSection:
+    """Batt insulation for pony walls (Excel: Takeoff R77-R83)."""
+    name: str = ""
+    height_ft: float = 0.0
+    lf: float = 0.0
+    insulation_type: str = "R24"
+    layers: int = 1
+
+    @property
+    def sqft(self) -> float:
+        return self.height_ft * self.lf * self.layers
+
+    @property
+    def bundles(self) -> int:
+        return math.ceil(self.sqft / 40.0) if self.sqft > 0 else 0
+
+
+# ---------------------------------------------------------------------------
+# Unit conversion helpers (Excel: Takeoff J5-K11)
+# ---------------------------------------------------------------------------
+
+def mm_to_ft(mm: float) -> float:
+    return mm / 304.8
+
+def mm_to_in(mm: float) -> float:
+    return mm / 25.4
+
+def ft_to_mm(ft: float) -> float:
+    return ft * 304.8
+
+def in_to_mm(inches: float) -> float:
+    return inches * 25.4
+
+
+# ---------------------------------------------------------------------------
 # System-Specific Material Definitions
 # Coverage rates sourced from database.py descriptions
 # ---------------------------------------------------------------------------
@@ -202,14 +463,22 @@ _SYSTEM_AREA_LAYERS = {
 # Format: (name, pricing_key, unit, rate_per_1000sqft, bid_group)
 _SYSTEM_CONSUMABLES = {
     "SBS": [
+        # Adhesives - wall vs field split (Excel: FRS R41-R46)
         ("Mastic (Sopramastic)", "Mastic", "pail", 2, "roofing"),
-        ("Elastocol Adhesive", "Adhesive_Elastocol", "pail (19L)", 3, "roofing"),
+        ("Elastocol Adhesive - Field", "Adhesive_Elastocol", "pail (19L)", 3, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 6, "flashing"),
+        # Accessories (Excel: FRS R48-R59)
+        ("Firetape (IKO 6\")", "Roof_Tape_IKO", "roll", 1, "roofing"),
+        ("Sopralap Cover Strip", "Sopralap_Cover_Strip", "roll", 1, "roofing"),
+        ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
+        ("Flashing Bond Mastic", "Flashing_Bond_Mastic", "tube", 3, "flashing"),
     ],
     "EPDM_Fully_Adhered": [
         ("EPDM Lap Sealant", "EPDM_Lap_Sealant", "tube", 4, "roofing"),
         ("Duotack Foamable Adhesive (insulation bonding)", "Duotack_Adhesive", "case", 2, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+        ("EPDM Cav Grip Adhesive", "EPDM_Cav_Grip", "cylinder", 0.5, "roofing"),
+        ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
     ],
     "EPDM_Ballasted": [
         ("EPDM Lap Sealant", "EPDM_Lap_Sealant", "tube", 4, "roofing"),
@@ -217,11 +486,32 @@ _SYSTEM_CONSUMABLES = {
     ],
     "TPO_Mechanically_Attached": [
         ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
+        ("TPO Tuck Tape", "TPO_Tuck_Tape", "roll", 2, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+        ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
     ],
     "TPO_Fully_Adhered": [
         ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
+        ("TPO Tuck Tape", "TPO_Tuck_Tape", "roll", 2, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
+    ],
+}
+
+# Wall-only consumables: computed from parapet strip sqft, not roof area
+# Format: (name, pricing_key, unit, sqft_per_unit, bid_group)
+_WALL_CONSUMABLES = {
+    "SBS": [
+        ("Elastocol Adhesive - Wall (parapet strips)", "Adhesive_Elastocol", "pail (19L)", 333, "flashing"),
+    ],
+    "EPDM_Fully_Adhered": [
+        ("EPDM Primer HP-250 (wall details)", "EPDM_Primer_HP250", "gallon", 50, "flashing"),
+    ],
+    "EPDM_Ballasted": [],
+    "TPO_Mechanically_Attached": [
+        ("TPO Primer (wall details)", "TPO_Primer", "gallon", 100, "flashing"),
+    ],
+    "TPO_Fully_Adhered": [
+        ("TPO Primer (wall details)", "TPO_Primer", "gallon", 100, "flashing"),
     ],
 }
 
@@ -287,43 +577,166 @@ _PIPE_SEAL_KEY = {
 class RoofMeasurements:
     """Measurements taken from architectural drawings (plan + section views)."""
 
-    # --- Field area (from plan view, e.g. R2.0 at given scale) ---
+    # --- Field area (from plan view) ---
     total_roof_area_sqft: float
-    perimeter_lf: float  # total roof edge perimeter
+    perimeter_lf: float
 
-    # --- Parapet ---
-    parapet_length_lf: float  # may differ from perimeter if partial parapet
+    # --- Parapet (simple — used when perimeter_sections is empty) ---
+    parapet_length_lf: float
     parapet_height_ft: float = 2.0
 
-    # --- Drains & Drainage ---
+    # --- Multi-section flat roof (Excel: Takeoff R5-R14) ---
+    roof_sections: list = field(default_factory=list)  # list[RoofSection]
+
+    # --- Unit conversion (Excel: Takeoff J5-K11) ---
+    input_unit: str = "imperial"  # "imperial" or "metric"
+
+    # --- Curbs with dimensions (Excel: Takeoff R31-R37) ---
+    curbs: list = field(default_factory=list)  # list[CurbDetail]
+    extra_mechanical_hours: float = 0.0
+
+    # --- Perimeter sections A-E (Excel: Takeoff R52-R58) ---
+    perimeter_sections: list = field(default_factory=list)  # list[PerimeterSection]
+    corner_count: int = 0
+
+    # --- Vents with types (Excel: Takeoff R40-R50) ---
+    vents: list = field(default_factory=list)  # list[VentItem]
+
+    # --- Legacy simple counts (backward compat — used when vents/curbs empty) ---
     roof_drain_count: int = 0
     scupper_count: int = 0
-
-    # --- Penetrations & Equipment ---
-    mechanical_unit_count: int = 0  # RTUs / rooftop units
+    mechanical_unit_count: int = 0
     sleeper_curb_count: int = 0
     vent_hood_count: int = 0
     gas_penetration_count: int = 0
     electrical_penetration_count: int = 0
     plumbing_vent_count: int = 0
+    gum_box_count: int = 0
+    b_vent_count: int = 0
+    radon_pipe_count: int = 0
+    roof_hatch_count: int = 0
+    skylight_count: int = 0
 
     # --- Optional area overrides ---
-    tapered_area_sqft: float | None = None   # area needing tapered ISO (default: full roof)
-    ballast_area_sqft: float | None = None   # area getting gravel ballast (default: full roof)
+    tapered_area_sqft: float | None = None
+    ballast_area_sqft: float | None = None
 
     # --- System type ---
     roof_system_type: str = "SBS"
 
+    # --- Wood work (Excel: Takeoff R67-R76) ---
+    wood_sections: list = field(default_factory=list)  # list[WoodWorkSection]
+
+    # --- Batt insulation (Excel: Takeoff R77-R83) ---
+    batt_sections: list = field(default_factory=list)  # list[BattInsulationSection]
+
+    # --- Other costs (Excel: FRS R123-R125) ---
+    delivery_count: int = 1
+    disposal_roof_count: int = 1
+    include_toilet: bool = False
+    include_fencing: bool = False
+
+    # --- Metal flashing type selection ---
+    metal_flashing_type: str = "galvanized"
+
+    # --- Material enable/disable toggles (Excel: FRS D column) ---
+    include_vapour_barrier: bool = True
+    include_insulation: bool = True
+    include_coverboard: bool = True
+    include_tapered: bool = True
+    include_drainage: bool = True
+
+    # --- Vapour barrier tie-in (Excel: FRS R18) ---
+    vapour_barrier_tie_in: bool = False
+
+    # --- SBS base sheet type ---
+    sbs_base_type: str = "torch"  # "torch" or "peel_stick"
+
+    # ---------------------------------------------------------------
+    # Computed properties
+    # ---------------------------------------------------------------
+
+    @property
+    def computed_roof_area(self) -> float:
+        """Use multi-section areas if provided, else fallback to total."""
+        if self.roof_sections:
+            return sum(s.area_sqft for s in self.roof_sections)
+        return self.total_roof_area_sqft
+
+    @property
+    def computed_parapet_lf(self) -> float:
+        """Use perimeter sections if provided, else fallback."""
+        if self.perimeter_sections:
+            return sum(s.lf for s in self.perimeter_sections)
+        return self.parapet_length_lf
+
+    @property
+    def total_strip_sqft(self) -> float:
+        """Total membrane strip area from perimeter sections."""
+        if self.perimeter_sections:
+            return sum(s.strip_sqft for s in self.perimeter_sections)
+        return self.parapet_length_lf * self.parapet_height_ft
+
+    @property
+    def total_metal_sqft(self) -> float:
+        """Total metal flashing area from perimeter sections."""
+        if self.perimeter_sections:
+            return sum(s.metal_sqft for s in self.perimeter_sections)
+        return self.parapet_length_lf * (self.parapet_height_ft + 0.5)
+
+    @property
+    def total_metal_sheets(self) -> int:
+        """Total metal sheets from perimeter sections."""
+        if self.perimeter_sections:
+            return sum(s.metal_sheet_count for s in self.perimeter_sections)
+        return math.ceil(self.parapet_length_lf / 10.0) if self.parapet_length_lf > 0 else 0
+
+    @property
+    def total_wood_face_sqft(self) -> float:
+        """Total wood facing area from perimeter sections (facing types only)."""
+        return sum(s.wood_face_sqft for s in self.perimeter_sections)
+
+    @property
+    def total_curb_perimeter_lf(self) -> float:
+        return sum(c.total_perimeter_lf for c in self.curbs)
+
+    @property
+    def total_curb_flashing_sqft(self) -> float:
+        return sum(c.total_flashing_sqft for c in self.curbs)
+
+    @property
+    def total_curb_labour_hours(self) -> float:
+        return sum(c.total_labour_hours for c in self.curbs) + self.extra_mechanical_hours
+
+    @property
+    def total_vent_hours(self) -> float:
+        return sum(v.total_hours for v in self.vents)
+
+    @property
+    def total_vent_count(self) -> int:
+        if self.vents:
+            return sum(v.count for v in self.vents)
+        return (self.roof_drain_count + self.scupper_count +
+                self.vent_hood_count + self.gas_penetration_count +
+                self.electrical_penetration_count + self.plumbing_vent_count +
+                self.gum_box_count + self.b_vent_count + self.radon_pipe_count)
+
     @property
     def effective_tapered_area(self) -> float:
-        return self.tapered_area_sqft if self.tapered_area_sqft is not None else self.total_roof_area_sqft
+        area = self.computed_roof_area
+        return self.tapered_area_sqft if self.tapered_area_sqft is not None else area
 
     @property
     def effective_ballast_area(self) -> float:
-        return self.ballast_area_sqft if self.ballast_area_sqft is not None else self.total_roof_area_sqft
+        area = self.computed_roof_area
+        return self.ballast_area_sqft if self.ballast_area_sqft is not None else area
 
     @property
     def total_penetrations(self) -> int:
+        if self.curbs or self.vents:
+            curb_total = sum(c.count for c in self.curbs)
+            vent_total = sum(v.count for v in self.vents)
+            return curb_total + vent_total + self.roof_hatch_count + self.skylight_count
         return (self.mechanical_unit_count + self.sleeper_curb_count +
                 self.vent_hood_count + self.gas_penetration_count +
                 self.electrical_penetration_count + self.plumbing_vent_count)
@@ -380,55 +793,109 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     """
     Calculate full material quantity takeoff and cost estimate.
 
-    Returns a structured dict with:
-      - project_measurements: echo of input measurements
-      - area_materials: membrane, insulation, drainage, ballast (sqft-driven)
-      - linear_materials: flashings, blocking, sheathing (lf-driven)
-      - unit_items: drains, penetration flashings (count-driven)
-      - consumables: primer, mastic, sealant, adhesive
-      - bid_summary: costs grouped by bid form line items
+    Covers Takeoff Sheet + Flat Roof Summary from SBS_Worksheet_4_5.xlsm:
+      - Multi-section roof areas
+      - Perimeter girth calculations (6 types)
+      - Curb dimensioned calculations
+      - Vent type/difficulty hours
+      - EPDM/TPO specific quantity formulas
+      - Wood work and batt insulation
+      - Wall vs field adhesive split
+      - Material toggles
+      - Other costs (delivery, disposal, toilet, fencing)
     """
 
     system = m.roof_system_type
     meta = _SYSTEM_META.get(system, _SYSTEM_META["SBS"])
+    roof_area = m.computed_roof_area
+    parapet_lf = m.computed_parapet_lf
 
     results = {
         "project_measurements": {
-            "total_roof_area_sqft": m.total_roof_area_sqft,
+            "total_roof_area_sqft": roof_area,
             "perimeter_lf": m.perimeter_lf,
-            "parapet_length_lf": m.parapet_length_lf,
+            "parapet_length_lf": parapet_lf,
             "parapet_height_ft": m.parapet_height_ft,
             "tapered_area_sqft": m.effective_tapered_area,
             "ballast_area_sqft": m.effective_ballast_area,
             "total_penetrations": m.total_penetrations,
+            "corner_count": m.corner_count,
             "roof_system_type": system,
             "roof_system_name": meta["display_name"],
             "spec": meta["spec"],
+            "layer_count": len(_SYSTEM_AREA_LAYERS.get(system, [])),
         },
+        "roof_sections": [],
         "area_materials": [],
+        "perimeter_details": [],
         "linear_materials": [],
+        "curb_details": [],
+        "vent_details": [],
         "unit_items": [],
         "consumables": [],
+        "epdm_tpo_details": [],
+        "wood_materials": [],
+        "batt_insulation": [],
+        "other_costs": [],
     }
 
     total_roofing_cost = 0.0
     total_flashing_cost = 0.0
     total_mechanical_cost = 0.0
+    total_other_cost = 0.0
+
+    # ===================================================================
+    # MULTI-SECTION ROOF AREAS (Excel: Takeoff R5-R14)
+    # ===================================================================
+    if m.roof_sections:
+        for sec in m.roof_sections:
+            if sec.area_sqft > 0:
+                results["roof_sections"].append({
+                    "name": sec.name,
+                    "count": sec.count,
+                    "length_ft": sec.length_ft,
+                    "width_ft": sec.width_ft,
+                    "area_sqft": round(sec.area_sqft, 0),
+                })
+        results["project_measurements"]["total_roof_area_sqft"] = roof_area
 
     # ===================================================================
     # AREA-BASED MATERIALS (membrane, insulation, drainage)
+    # With material toggle support (Excel: FRS D column Yes/No)
     # ===================================================================
     area_layers = _SYSTEM_AREA_LAYERS.get(system, _SYSTEM_AREA_LAYERS["SBS"])
 
+    # Map pricing keys to toggle categories
+    _TOGGLE_MAP = {
+        "Vapour_Barrier_Sopravapor": "include_vapour_barrier",
+        "Polyisocyanurate_ISO_Insulation": "include_insulation",
+        "ISO_2_5_inch": "include_insulation",
+        "XPS_Insulation": "include_insulation",
+        "EPS_Insulation_EPDM": "include_insulation",
+        "DensDeck_Coverboard": "include_coverboard",
+        "Densdeck_Half_Inch": "include_coverboard",
+        "Soprasmart_ISO_HD": "include_coverboard",
+        "Tapered_ISO": "include_tapered",
+        "Drainage_Board": "include_drainage",
+        "EPDM_Drainage_Mat": "include_drainage",
+        "EPDM_Filter_Fabric": "include_drainage",
+        "Fleece_Reinforcement_Fabric": "include_drainage",
+    }
+
     for name, pkey, unit, sqft_per_unit, area_src, waste_pct, bid_grp in area_layers:
+        # Check material toggle
+        toggle_attr = _TOGGLE_MAP.get(pkey)
+        if toggle_attr and not getattr(m, toggle_attr, True):
+            continue
+
         if area_src == "roof_area":
-            base_area = m.total_roof_area_sqft
+            base_area = roof_area
         elif area_src == "tapered_area":
             base_area = m.effective_tapered_area
         elif area_src == "ballast_area":
             base_area = m.effective_ballast_area
         else:
-            base_area = m.total_roof_area_sqft
+            base_area = roof_area
 
         area_with_waste = base_area * (1 + waste_pct)
         qty = math.ceil(area_with_waste / sqft_per_unit)
@@ -449,7 +916,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         if bid_grp == "roofing":
             total_roofing_cost += line_cost
 
-    # Gravel ballast note (only for systems that use ballast)
+    # Gravel ballast note
     if meta["include_ballast_note"]:
         results["area_materials"].append({
             "name": "Gravel Ballast (100mm max / 15 lb/sqft) - existing, redistribute",
@@ -460,30 +927,96 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "unit_price": 0.0,
             "line_cost": 0.0,
             "bid_group": "roofing",
-            "note": "Existing ballast. Reduce depth to 100mm max. Disposal/redistribution cost by contractor.",
+            "note": "Existing ballast. Reduce depth to 100mm max.",
         })
+
+    # Vapour Barrier Tie-In (Excel: FRS R18)
+    if m.vapour_barrier_tie_in:
+        vb_price = _get_price("Vapour_Barrier_TieIn")
+        results["area_materials"].append({
+            "name": "Vapour Barrier Tie-In Allowance",
+            "base_area_sqft": 0,
+            "waste_pct": "0%",
+            "quantity": 1,
+            "unit": "allowance",
+            "unit_price": round(vb_price, 2),
+            "line_cost": round(vb_price, 2),
+            "bid_group": "roofing",
+        })
+        total_roofing_cost += vb_price
+
+    # ===================================================================
+    # PERIMETER SECTION DETAILS (Excel: Takeoff R52-R58)
+    # Girth calculations per section type
+    # ===================================================================
+    if m.perimeter_sections:
+        for sec in m.perimeter_sections:
+            if sec.lf <= 0:
+                continue
+            results["perimeter_details"].append({
+                "name": sec.name,
+                "type": PERIMETER_TYPES.get(sec.perimeter_type, sec.perimeter_type),
+                "height_in": sec.height_in,
+                "lf": round(sec.lf, 0),
+                "strip_girth_in": round(sec.strip_girth_in, 1),
+                "strip_sqft": round(sec.strip_sqft, 0),
+                "metal_girth_in": round(sec.metal_girth_in, 1),
+                "metal_sqft": round(sec.metal_sqft, 0),
+                "metal_sheets": sec.metal_sheet_count,
+                "top_of_parapet": sec.top_of_parapet,
+                "wood_face_sqft": round(sec.wood_face_sqft, 0),
+                "fab_difficulty": sec.fabrication_difficulty,
+                "install_difficulty": sec.install_difficulty,
+            })
 
     # ===================================================================
     # LINEAR-FOOT MATERIALS (flashings, blocking, sheathing)
+    # Uses perimeter section girth data when available
     # ===================================================================
-    linear_items = [
-        # (name, pricing_key, unit, lf_per_unit, length_source, waste%, bid_group)
-        ("Metal Cap Flashing (24ga prefinished galv.)",
-         "Flashing_General", "10ft piece", 10, "parapet", 0.10, "flashing"),
-        ("Metal Counter Flashing (24ga prefinished galv.)",
-         "Flashing_General", "10ft piece", 10, "parapet", 0.10, "flashing"),
-        ("Wood Blocking (SPF 2x)",
-         "Wood_Blocking_Lumber", "8ft piece", 8, "parapet", 0.15, "flashing"),
-        ("Plywood Sheathing (12.5mm Douglas Fir)",
-         "Plywood_Sheathing", "4'x8' sheet", 8, "parapet", 0.15, "flashing"),
-    ]
+    metal_flash_key = METAL_FLASHING_TYPES.get(
+        m.metal_flashing_type, "Metal_Flashing_Galvanized"
+    )
+    metal_type_label = {
+        "galvanized": "Galvanized w/ Clips",
+        "prepainted": "Prepainted",
+        "cladding": "Cladding Panel",
+    }.get(m.metal_flashing_type, "Galvanized")
 
-    for name, pkey, unit, lf_per_unit, src, waste_pct, bid_grp in linear_items:
-        if src == "parapet":
-            base_lf = m.parapet_length_lf
-        else:
-            base_lf = m.perimeter_lf
+    if m.perimeter_sections:
+        # Girth-based calculation: metal from perimeter section data
+        total_cap_lf = sum(
+            s.lf for s in m.perimeter_sections if s.top_of_parapet and s.lf > 0
+        )
+        total_counter_lf = sum(s.lf for s in m.perimeter_sections if s.lf > 0)
+        total_wood_lf = parapet_lf
+        total_ply_lf = parapet_lf
 
+        linear_items = [
+            (f"Metal Cap Flashing ({metal_type_label})",
+             metal_flash_key, "LF", 1, total_cap_lf, 0.10, "flashing"),
+            (f"Metal Counter Flashing ({metal_type_label})",
+             metal_flash_key, "LF", 1, total_counter_lf, 0.10, "flashing"),
+            ("Wood Blocking (SPF 2x)",
+             "Wood_Blocking_Lumber", "8ft piece", 8, total_wood_lf, 0.15, "flashing"),
+            ("Plywood Sheathing (12.5mm Douglas Fir)",
+             "Plywood_Sheathing", "4'x8' sheet", 8, total_ply_lf, 0.15, "flashing"),
+        ]
+    else:
+        # Simple fallback
+        linear_items = [
+            (f"Metal Cap Flashing ({metal_type_label})",
+             metal_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
+            (f"Metal Counter Flashing ({metal_type_label})",
+             metal_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
+            ("Wood Blocking (SPF 2x)",
+             "Wood_Blocking_Lumber", "8ft piece", 8, m.parapet_length_lf, 0.15, "flashing"),
+            ("Plywood Sheathing (12.5mm Douglas Fir)",
+             "Plywood_Sheathing", "4'x8' sheet", 8, m.parapet_length_lf, 0.15, "flashing"),
+        ]
+
+    for name, pkey, unit, lf_per_unit, base_lf, waste_pct, bid_grp in linear_items:
+        if base_lf <= 0:
+            continue
         lf_with_waste = base_lf * (1 + waste_pct)
         qty = math.ceil(lf_with_waste / lf_per_unit)
         unit_price = _get_price(pkey)
@@ -504,60 +1037,199 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             total_flashing_cost += line_cost
 
     # ===================================================================
-    # UNIT ITEMS (drains, penetration flashings, equipment)
+    # CURB DETAILS (Excel: Takeoff R31-R37)
+    # Dimensioned curbs with perimeter, flashing sqft, labour hours
     # ===================================================================
-    pipe_key, pipe_name = _PIPE_SEAL_KEY.get(system, ("Pipe_Boot_Seal", "Penetration Seal"))
-    unit_defs = [
-        # (name, pricing_key, unit, count_attr, multiplier, bid_group)
-        ("Roof Drain Insert (spun aluminum, OMG/Thaler)",
-         "Roof_Drain", "EA", "roof_drain_count", 1, "roofing"),
-        ("Overflow Scupper",
-         "Scupper", "EA", "scupper_count", 1, "roofing"),
-        ("Mechanical Unit Curb Flashing",
-         "Flashing_General", "EA", "mechanical_unit_count", 4, "mechanical"),
-        ("Sleeper Curb Flashing",
-         "Flashing_General", "EA", "sleeper_curb_count", 2, "mechanical"),
-        ("Vent Hood Flashing",
-         "Gooseneck_Vent", "EA", "vent_hood_count", 1, "roofing"),
-        (f"Gas {pipe_name}",
-         pipe_key, "EA", "gas_penetration_count", 1, "roofing"),
-        (f"Electrical {pipe_name}",
-         pipe_key, "EA", "electrical_penetration_count", 1, "roofing"),
-        ("Plumbing Vent Flashing",
-         "Plumbing_Vent", "EA", "plumbing_vent_count", 1, "roofing"),
-    ]
+    if m.curbs:
+        for curb in m.curbs:
+            if curb.count <= 0:
+                continue
+            # Curb flashing material
+            flash_sqft = curb.total_flashing_sqft
+            flash_price = _get_price("Flashing_General")
+            # Price per sqft of flashing (estimate: each 10ft piece covers ~3.33 sqft at 4" girth)
+            flash_lf = curb.total_perimeter_lf
+            flash_pcs = math.ceil(flash_lf * 1.1 / 10.0)
+            flash_cost = flash_pcs * flash_price
 
-    for name, pkey, unit, count_attr, multiplier, bid_grp in unit_defs:
-        base_count = getattr(m, count_attr, 0)
-        qty = base_count * multiplier
-        if qty == 0:
-            continue
-        unit_price = _get_price(pkey)
-        line_cost = qty * unit_price
+            results["curb_details"].append({
+                "curb_type": curb.curb_type,
+                "count": curb.count,
+                "dimensions": f"{curb.length_in}\"L x {curb.width_in}\"W x {curb.height_in}\"H",
+                "perimeter_lf": round(curb.total_perimeter_lf, 1),
+                "flashing_sqft": round(flash_sqft, 0),
+                "labour_hours": round(curb.total_labour_hours, 1),
+                "flashing_pieces": flash_pcs,
+                "flashing_cost": round(flash_cost, 2),
+            })
+            total_mechanical_cost += flash_cost
 
-        results["unit_items"].append({
-            "name": name,
-            "base_count": base_count,
-            "multiplier": multiplier,
-            "quantity": qty,
-            "unit": unit,
-            "unit_price": round(unit_price, 2),
-            "line_cost": round(line_cost, 2),
-            "bid_group": bid_grp,
+    # Extra mechanical hours
+    if m.extra_mechanical_hours > 0:
+        results["curb_details"].append({
+            "curb_type": "Extra Mechanical Hours",
+            "count": 1,
+            "dimensions": "-",
+            "perimeter_lf": 0,
+            "flashing_sqft": 0,
+            "labour_hours": m.extra_mechanical_hours,
+            "flashing_pieces": 0,
+            "flashing_cost": 0,
         })
 
-        if bid_grp == "roofing":
-            total_roofing_cost += line_cost
-        elif bid_grp == "mechanical":
-            total_mechanical_cost += line_cost
+    # ===================================================================
+    # VENT DETAILS (Excel: Takeoff R40-R50)
+    # Type-specific with difficulty hour adjustments
+    # ===================================================================
+    if m.vents:
+        for vent in m.vents:
+            if vent.count <= 0:
+                continue
+            results["vent_details"].append({
+                "vent_type": vent.vent_type,
+                "count": vent.count,
+                "difficulty": vent.difficulty,
+                "hours_per_unit": round(vent.hours_per_unit, 1),
+                "total_hours": round(vent.total_hours, 1),
+            })
 
     # ===================================================================
-    # CONSUMABLES (primer already above, mastic, sealant, adhesive)
+    # UNIT ITEMS (drains, penetration flashings, equipment)
+    # Uses detailed vents if provided, else legacy counts
+    # ===================================================================
+    pipe_key, pipe_name = _PIPE_SEAL_KEY.get(system, ("Pipe_Boot_Seal", "Penetration Seal"))
+
+    if m.vents:
+        # Build unit items from detailed vent list
+        _vent_to_pricing = {
+            "pipe_boot": (pipe_key, pipe_name),
+            "b_vent":    (pipe_key, f"B-Vent {pipe_name}"),
+            "hood_vent": ("Gooseneck_Vent", "Vent Hood Flashing"),
+            "plumb_vent": ("Plumbing_Vent", "Plumbing Vent Flashing"),
+            "gum_box":   ("Gum_Box", "Gum Box / Catchment"),
+            "scupper":   ("Scupper", "Overflow Scupper"),
+            "radon_pipe": (pipe_key, f"Radon Pipe {pipe_name}"),
+            "drain":     ("Roof_Drain", "Roof Drain Insert"),
+        }
+        for vent in m.vents:
+            if vent.count <= 0:
+                continue
+            pkey_v, name_v = _vent_to_pricing.get(
+                vent.vent_type, (pipe_key, vent.vent_type)
+            )
+            unit_price = _get_price(pkey_v)
+            line_cost = vent.count * unit_price
+            bid_grp = "roofing"
+
+            results["unit_items"].append({
+                "name": name_v,
+                "base_count": vent.count,
+                "multiplier": 1,
+                "quantity": vent.count,
+                "unit": "EA",
+                "unit_price": round(unit_price, 2),
+                "line_cost": round(line_cost, 2),
+                "bid_group": bid_grp,
+            })
+            total_roofing_cost += line_cost
+    else:
+        # Legacy unit item definitions
+        unit_defs = [
+            ("Roof Drain Insert (OMG/Thaler)",
+             "Roof_Drain", "EA", "roof_drain_count", 1, "roofing"),
+            ("Overflow Scupper",
+             "Scupper", "EA", "scupper_count", 1, "roofing"),
+            ("Vent Hood Flashing",
+             "Gooseneck_Vent", "EA", "vent_hood_count", 1, "roofing"),
+            (f"Gas {pipe_name}",
+             pipe_key, "EA", "gas_penetration_count", 1, "roofing"),
+            (f"Electrical {pipe_name}",
+             pipe_key, "EA", "electrical_penetration_count", 1, "roofing"),
+            ("Plumbing Vent Flashing",
+             "Plumbing_Vent", "EA", "plumbing_vent_count", 1, "roofing"),
+            ("Gum Box / Catchment",
+             "Gum_Box", "EA", "gum_box_count", 1, "roofing"),
+            ("B-Vent Flashing",
+             pipe_key, "EA", "b_vent_count", 1, "roofing"),
+            ("Radon Pipe Seal",
+             pipe_key, "EA", "radon_pipe_count", 1, "roofing"),
+            ("Roof Hatch",
+             "Roof_Hatch", "EA", "roof_hatch_count", 1, "roofing"),
+        ]
+
+        for name, pkey, unit, count_attr, multiplier, bid_grp in unit_defs:
+            base_count = getattr(m, count_attr, 0)
+            qty = base_count * multiplier
+            if qty == 0:
+                continue
+            unit_price = _get_price(pkey)
+            line_cost = qty * unit_price
+
+            results["unit_items"].append({
+                "name": name,
+                "base_count": base_count,
+                "multiplier": multiplier,
+                "quantity": qty,
+                "unit": unit,
+                "unit_price": round(unit_price, 2),
+                "line_cost": round(line_cost, 2),
+                "bid_group": bid_grp,
+            })
+
+            if bid_grp == "roofing":
+                total_roofing_cost += line_cost
+
+    # Legacy curb flashing (when no detailed curbs)
+    if not m.curbs:
+        for name, pkey, unit, count_attr, mult, bid_grp in [
+            ("Mechanical Unit Curb Flashing",
+             "Flashing_General", "EA", "mechanical_unit_count", 4, "mechanical"),
+            ("Sleeper Curb Flashing",
+             "Flashing_General", "EA", "sleeper_curb_count", 2, "mechanical"),
+        ]:
+            base_count = getattr(m, count_attr, 0)
+            qty = base_count * mult
+            if qty == 0:
+                continue
+            unit_price = _get_price(pkey)
+            line_cost = qty * unit_price
+            results["unit_items"].append({
+                "name": name,
+                "base_count": base_count,
+                "multiplier": mult,
+                "quantity": qty,
+                "unit": unit,
+                "unit_price": round(unit_price, 2),
+                "line_cost": round(line_cost, 2),
+                "bid_group": bid_grp,
+            })
+            total_mechanical_cost += line_cost
+
+    # Corner materials (Excel: corner count affects labour + material)
+    if m.corner_count > 0:
+        corner_price = _get_price("Flashing_General")
+        corner_cost = m.corner_count * corner_price * 0.5  # half piece per corner
+        results["unit_items"].append({
+            "name": "Perimeter Corner Pieces",
+            "base_count": m.corner_count,
+            "multiplier": 1,
+            "quantity": m.corner_count,
+            "unit": "EA",
+            "unit_price": round(corner_price * 0.5, 2),
+            "line_cost": round(corner_cost, 2),
+            "bid_group": "flashing",
+        })
+        total_flashing_cost += corner_cost
+
+    # ===================================================================
+    # CONSUMABLES — field-area based (Excel: FRS R41-R59)
     # ===================================================================
     consumable_defs = _SYSTEM_CONSUMABLES.get(system, _SYSTEM_CONSUMABLES["SBS"])
 
     for name, pkey, unit, rate_per_1000, bid_grp in consumable_defs:
-        qty = math.ceil(m.total_roof_area_sqft / 1000 * rate_per_1000)
+        qty = math.ceil(roof_area / 1000 * rate_per_1000)
+        if qty <= 0:
+            qty = 1
         unit_price = _get_price(pkey)
         line_cost = qty * unit_price
 
@@ -575,8 +1247,268 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         elif bid_grp == "flashing":
             total_flashing_cost += line_cost
 
+    # Wall-only consumables (adhesive/primer for parapet strips)
+    wall_defs = _WALL_CONSUMABLES.get(system, [])
+    wall_area = m.total_strip_sqft
+    for name, pkey, unit, sqft_per_unit, bid_grp in wall_defs:
+        if wall_area <= 0:
+            continue
+        qty = math.ceil(wall_area * 1.1 / sqft_per_unit)
+        unit_price = _get_price(pkey)
+        line_cost = qty * unit_price
+
+        results["consumables"].append({
+            "name": name,
+            "quantity": qty,
+            "unit": unit,
+            "unit_price": round(unit_price, 2),
+            "line_cost": round(line_cost, 2),
+            "bid_group": bid_grp,
+        })
+        if bid_grp == "flashing":
+            total_flashing_cost += line_cost
+
     # ===================================================================
-    # BID SUMMARY (matches Div 00 41 00 bid form structure)
+    # EPDM / TPO SPECIFIC QUANTITY FORMULAS
+    # (Excel: FRS R60-R101)
+    # ===================================================================
+    if system.startswith("EPDM"):
+        # EPDM Seam Tape: membrane_rolls × seam overlap
+        membrane_rolls = math.ceil(roof_area * 1.1 / 1000)
+        seam_lf = roof_area / 10.0 * 1.1  # 10ft-wide rolls, seam every width
+        seam_tape_rolls = math.ceil(seam_lf / 100.0)
+        seam_tape_price = _get_price("EPDM_Seam_Tape")
+
+        results["epdm_tpo_details"].append({
+            "name": "EPDM Seam Tape (computed: roof_area/10 × 1.1 waste)",
+            "quantity": seam_tape_rolls,
+            "unit": "roll (100 lf)",
+            "unit_price": round(seam_tape_price, 2),
+            "line_cost": round(seam_tape_rolls * seam_tape_price, 2),
+        })
+        total_roofing_cost += seam_tape_rolls * seam_tape_price
+
+        # EPDM Corners (inside + outside)
+        total_corners = m.corner_count if m.corner_count > 0 else 4
+        corner_price = _get_price("EPDM_PS_Corner")
+        results["epdm_tpo_details"].append({
+            "name": "EPDM Peel & Stick Corners (IS/OS)",
+            "quantity": total_corners * 2,
+            "unit": "piece",
+            "unit_price": round(corner_price, 2),
+            "line_cost": round(total_corners * 2 * corner_price, 2),
+        })
+        total_roofing_cost += total_corners * 2 * corner_price
+
+        # EPDM Curb Flashing
+        curb_perim = m.total_curb_perimeter_lf
+        if curb_perim > 0:
+            curb_flash_price = _get_price("EPDM_Curb_Flash")
+            curb_flash_rolls = math.ceil(curb_perim / 50.0)  # 50 lf per roll
+            results["epdm_tpo_details"].append({
+                "name": "EPDM Curb Flash (from curb perimeters)",
+                "quantity": curb_flash_rolls,
+                "unit": "roll",
+                "unit_price": round(curb_flash_price, 2),
+                "line_cost": round(curb_flash_rolls * curb_flash_price, 2),
+            })
+            total_roofing_cost += curb_flash_rolls * curb_flash_price
+
+        # EPDM RUSS-6 for perimeter
+        if parapet_lf > 0:
+            russ_price = _get_price("EPDM_RUSS_6")
+            russ_rolls = math.ceil(parapet_lf * 1.1 / 100.0)
+            results["epdm_tpo_details"].append({
+                "name": "EPDM RUSS 6\" (perimeter termination)",
+                "quantity": russ_rolls,
+                "unit": "roll",
+                "unit_price": round(russ_price, 2),
+                "line_cost": round(russ_rolls * russ_price, 2),
+            })
+            total_roofing_cost += russ_rolls * russ_price
+
+    elif system.startswith("TPO"):
+        # TPO Rhinobond plate quantity (Excel formula)
+        if system == "TPO_Mechanically_Attached":
+            curb_perim = m.total_curb_perimeter_lf
+            coverboard_sheets = math.ceil(roof_area * 1.1 / 32.0)
+            rhinobond_qty = ((curb_perim + parapet_lf) + coverboard_sheets * 10) / 500.0 * 1.2
+            rhinobond_pallets = math.ceil(rhinobond_qty) if rhinobond_qty > 0 else 1
+            rb_price = _get_price("TPO_Rhinobond_Plate")
+            results["epdm_tpo_details"].append({
+                "name": "Rhinobond Plates (computed: edge + field)",
+                "quantity": rhinobond_pallets,
+                "unit": "pallet",
+                "unit_price": round(rb_price, 2),
+                "line_cost": round(rhinobond_pallets * rb_price, 2),
+            })
+            total_roofing_cost += rhinobond_pallets * rb_price
+
+        # TPO Flashing for parapets (24" or 12" based on height)
+        if parapet_lf > 0:
+            par_height = m.parapet_height_ft
+            if m.perimeter_sections:
+                avg_height_in = sum(s.height_in for s in m.perimeter_sections) / len(m.perimeter_sections)
+                par_height = avg_height_in / 12.0
+            if par_height > 1.5:
+                flash_key = "TPO_Flashing_24in"
+                flash_label = "TPO Flashing 24\" (parapet)"
+                flash_coverage = 50  # 50 lf per roll
+            else:
+                flash_key = "TPO_Flashing_12in"
+                flash_label = "TPO Flashing 12\" (parapet)"
+                flash_coverage = 50
+            flash_rolls = math.ceil(parapet_lf * 1.1 / flash_coverage)
+            flash_price = _get_price(flash_key)
+            results["epdm_tpo_details"].append({
+                "name": flash_label,
+                "quantity": flash_rolls,
+                "unit": "roll",
+                "unit_price": round(flash_price, 2),
+                "line_cost": round(flash_rolls * flash_price, 2),
+            })
+            total_flashing_cost += flash_rolls * flash_price
+
+        # TPO Corners
+        total_corners = m.corner_count if m.corner_count > 0 else 4
+        tpo_corner_price = _get_price("TPO_Corner")
+        results["epdm_tpo_details"].append({
+            "name": "TPO Inside/Outside Corners",
+            "quantity": total_corners * 2,
+            "unit": "piece",
+            "unit_price": round(tpo_corner_price, 2),
+            "line_cost": round(total_corners * 2 * tpo_corner_price, 2),
+        })
+        total_roofing_cost += total_corners * 2 * tpo_corner_price
+
+        # TPO Tuck Tape quantity (per seam LF)
+        seam_lf = roof_area / 10.0 * 1.1
+        tuck_rolls = math.ceil(seam_lf / 150.0)  # 150 lf per roll
+        tuck_price = _get_price("TPO_Tuck_Tape")
+        results["epdm_tpo_details"].append({
+            "name": "TPO Tuck Tape (seam detail)",
+            "quantity": tuck_rolls,
+            "unit": "roll",
+            "unit_price": round(tuck_price, 2),
+            "line_cost": round(tuck_rolls * tuck_price, 2),
+        })
+        total_roofing_cost += tuck_rolls * tuck_price
+
+    # ===================================================================
+    # WOOD WORK (Excel: Takeoff R67-R76)
+    # ===================================================================
+    if m.wood_sections:
+        for ws in m.wood_sections:
+            qty = ws.quantity
+            if qty <= 0:
+                continue
+            pkey = WOOD_PRODUCT_KEYS.get(ws.lumber_size, "Wood_Blocking_Lumber")
+            unit_price = _get_price(pkey)
+            line_cost = qty * unit_price
+            unit_label = "4'x8' sheet" if ws.wood_type == "plywood" else "8ft piece"
+
+            results["wood_materials"].append({
+                "name": f"Wood: {ws.name} ({ws.wood_type}, {ws.lumber_size})",
+                "quantity": qty,
+                "unit": unit_label,
+                "layers": ws.layers,
+                "unit_price": round(unit_price, 2),
+                "line_cost": round(line_cost, 2),
+            })
+            total_flashing_cost += line_cost
+
+    # Wood facing from perimeter sections (parapet types with facing)
+    if m.total_wood_face_sqft > 0:
+        ply_sheets = math.ceil(m.total_wood_face_sqft / 32.0)
+        ply_price = _get_price("Plywood_Sheathing")
+        face_cost = ply_sheets * ply_price
+        results["wood_materials"].append({
+            "name": "Plywood Facing (parapet sections with facing)",
+            "quantity": ply_sheets,
+            "unit": "4'x8' sheet",
+            "layers": 1,
+            "unit_price": round(ply_price, 2),
+            "line_cost": round(face_cost, 2),
+        })
+        total_flashing_cost += face_cost
+
+    # ===================================================================
+    # BATT INSULATION (Excel: Takeoff R77-R83)
+    # ===================================================================
+    if m.batt_sections:
+        for bs in m.batt_sections:
+            if bs.bundles <= 0:
+                continue
+            batt_price = _get_price("Batt_Insulation")
+            line_cost = bs.bundles * batt_price
+            results["batt_insulation"].append({
+                "name": f"Batt Insulation: {bs.name} ({bs.insulation_type})",
+                "sqft": round(bs.sqft, 0),
+                "quantity": bs.bundles,
+                "unit": "bundle",
+                "layers": bs.layers,
+                "unit_price": round(batt_price, 2),
+                "line_cost": round(line_cost, 2),
+            })
+            total_roofing_cost += line_cost
+
+    # ===================================================================
+    # OTHER COSTS (Excel: FRS R123-R125)
+    # Delivery, Disposal, Toilet, Fencing
+    # ===================================================================
+    # Delivery
+    if m.delivery_count > 0:
+        delivery_price = 250.00
+        delivery_cost = m.delivery_count * delivery_price
+        results["other_costs"].append({
+            "name": "Delivery",
+            "quantity": m.delivery_count,
+            "unit": "trip",
+            "unit_price": delivery_price,
+            "line_cost": round(delivery_cost, 2),
+        })
+        total_other_cost += delivery_cost
+
+    # Disposal
+    if m.disposal_roof_count > 0:
+        squares = roof_area / 100.0
+        disposal_price = 70.00  # per square
+        disposal_cost = m.disposal_roof_count * squares * disposal_price
+        results["other_costs"].append({
+            "name": f"Disposal ({m.disposal_roof_count} roof(s) x {squares:.0f} sq @ $70/sq)",
+            "quantity": m.disposal_roof_count,
+            "unit": "roof",
+            "unit_price": round(squares * disposal_price, 2),
+            "line_cost": round(disposal_cost, 2),
+        })
+        total_other_cost += disposal_cost
+
+    # Toilet rental
+    if m.include_toilet:
+        toilet_cost = 250.00
+        results["other_costs"].append({
+            "name": "Portable Toilet Rental",
+            "quantity": 1,
+            "unit": "month",
+            "unit_price": toilet_cost,
+            "line_cost": toilet_cost,
+        })
+        total_other_cost += toilet_cost
+
+    # Fencing
+    if m.include_fencing:
+        fencing_cost = 500.00 + (roof_area / 100.0 * 15.00)
+        results["other_costs"].append({
+            "name": "Temporary Fencing",
+            "quantity": 1,
+            "unit": "job",
+            "unit_price": round(fencing_cost, 2),
+            "line_cost": round(fencing_cost, 2),
+        })
+        total_other_cost += fencing_cost
+
+    # ===================================================================
+    # BID SUMMARY
     # ===================================================================
     total_roofing_plus_flashing = total_roofing_cost + total_flashing_cost
     labour_mult = meta["labour_multiplier"]
@@ -597,16 +1529,25 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "estimated_cost": round(total_roofing_plus_flashing * labour_mult, 2),
         },
         "item_3_mechanical_support": {
-            "description": "Mechanical Support (sleeper curbs, RTU flashings)",
+            "description": "Mechanical Support (curbs, RTU flashings)",
             "material_cost": round(total_mechanical_cost, 2),
             "labour_multiplier": mech_mult,
             "note": "Higher labour ratio for detail work",
             "estimated_cost": round(total_mechanical_cost * mech_mult, 2),
         },
+        "item_4_other_costs": {
+            "description": "Other Costs (delivery, disposal, temp facilities)",
+            "cost": round(total_other_cost, 2),
+        },
+        "total_material_cost": round(
+            total_roofing_cost + total_flashing_cost + total_mechanical_cost, 2
+        ),
+        "total_other_cost": round(total_other_cost, 2),
         "total_estimate": round(
-            total_roofing_plus_flashing * 0.10 +      # general req
-            total_roofing_plus_flashing * labour_mult + # roofing + flashing
-            total_mechanical_cost * mech_mult,          # mechanical
+            total_roofing_plus_flashing * 0.10 +
+            total_roofing_plus_flashing * labour_mult +
+            total_mechanical_cost * mech_mult +
+            total_other_cost,
             2
         ),
     }
@@ -627,7 +1568,7 @@ def print_estimate(est: dict) -> None:
     print("=" * 72)
     print("  ROOFING QUANTITY TAKEOFF & COST ESTIMATE")
     print(f"  {system_name}")
-    print(f"  Spec: {spec}")
+    print(f"  Spec: {spec}  |  Layers: {meas.get('layer_count', '?')}")
     print("=" * 72)
 
     print(f"\n  Roof Area     : {meas['total_roof_area_sqft']:,.0f} sqft")
@@ -636,6 +1577,43 @@ def print_estimate(est: dict) -> None:
     print(f"  Tapered Area  : {meas['tapered_area_sqft']:,.0f} sqft")
     print(f"  Ballast Area  : {meas['ballast_area_sqft']:,.0f} sqft")
     print(f"  Penetrations  : {meas['total_penetrations']} total")
+    if meas.get("corner_count", 0) > 0:
+        print(f"  Corners       : {meas['corner_count']}")
+
+    # Roof sections
+    if est.get("roof_sections"):
+        print(f"\n  {'-' * 68}")
+        print("  ROOF SECTIONS")
+        print(f"  {'-' * 68}")
+        for sec in est["roof_sections"]:
+            print(f"    {sec['name']}: {sec['count']} x {sec['length_ft']}' x {sec['width_ft']}' = {sec['area_sqft']:,.0f} sqft")
+
+    # Perimeter details
+    if est.get("perimeter_details"):
+        print(f"\n  {'-' * 68}")
+        print("  PERIMETER SECTIONS (girth calculations)")
+        print(f"  {'-' * 68}")
+        for p in est["perimeter_details"]:
+            print(f"    Section {p['name']}: {p['type']} | {p['height_in']}\"H x {p['lf']:,.0f} LF")
+            print(f"      Strip: {p['strip_girth_in']}\" girth = {p['strip_sqft']:,.0f} sqft")
+            print(f"      Metal: {p['metal_girth_in']}\" girth = {p['metal_sqft']:,.0f} sqft ({p['metal_sheets']} sheets)")
+
+    # Curb details
+    if est.get("curb_details"):
+        print(f"\n  {'-' * 68}")
+        print("  CURB DETAILS")
+        print(f"  {'-' * 68}")
+        for c in est["curb_details"]:
+            print(f"    {c['curb_type']}: {c['count']}x {c['dimensions']}")
+            print(f"      Perim: {c['perimeter_lf']:.1f} LF | Flash: {c['flashing_sqft']:.0f} sqft | Labour: {c['labour_hours']:.1f} hrs | Cost: ${c['flashing_cost']:,.2f}")
+
+    # Vent details
+    if est.get("vent_details"):
+        print(f"\n  {'-' * 68}")
+        print("  VENT DETAILS")
+        print(f"  {'-' * 68}")
+        for v in est["vent_details"]:
+            print(f"    {v['vent_type']}: {v['count']}x ({v['difficulty']}) = {v['total_hours']:.1f} hrs")
 
     # Area materials
     print(f"\n  {'-' * 68}")
@@ -657,6 +1635,15 @@ def print_estimate(est: dict) -> None:
         print(f"      {item['quantity']:,} {item['unit']}  ({item['base_lf']:,.0f} LF + {item['waste_pct']} waste)")
         print(f"      @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
 
+    # EPDM/TPO details
+    if est.get("epdm_tpo_details"):
+        print(f"\n  {'-' * 68}")
+        print("  SYSTEM-SPECIFIC MATERIALS (EPDM/TPO)")
+        print(f"  {'-' * 68}")
+        for item in est["epdm_tpo_details"]:
+            print(f"    {item['name']}")
+            print(f"      {item['quantity']} {item['unit']}  @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
+
     # Unit items
     if est["unit_items"]:
         print(f"\n  {'-' * 68}")
@@ -670,16 +1657,41 @@ def print_estimate(est: dict) -> None:
 
     # Consumables
     print(f"\n  {'-' * 68}")
-    print("  CONSUMABLES (mastic, adhesive, sealant)")
+    print("  CONSUMABLES & ACCESSORIES (field + wall)")
     print(f"  {'-' * 68}")
     for item in est["consumables"]:
         print(f"    {item['name']}")
         print(f"      {item['quantity']} {item['unit']}  @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
 
+    # Wood materials
+    if est.get("wood_materials"):
+        print(f"\n  {'-' * 68}")
+        print("  WOOD WORK MATERIALS")
+        print(f"  {'-' * 68}")
+        for item in est["wood_materials"]:
+            print(f"    {item['name']}")
+            print(f"      {item['quantity']} {item['unit']} x{item['layers']} layer(s)  @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
+
+    # Batt insulation
+    if est.get("batt_insulation"):
+        print(f"\n  {'-' * 68}")
+        print("  BATT INSULATION")
+        print(f"  {'-' * 68}")
+        for item in est["batt_insulation"]:
+            print(f"    {item['name']}: {item['sqft']:,.0f} sqft = {item['quantity']} bundles  @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
+
+    # Other costs
+    if est.get("other_costs"):
+        print(f"\n  {'-' * 68}")
+        print("  OTHER COSTS")
+        print(f"  {'-' * 68}")
+        for item in est["other_costs"]:
+            print(f"    {item['name']}: {item['quantity']} {item['unit']}  @  ${item['unit_price']:,.2f}  =  ${item['line_cost']:,.2f}")
+
     # Bid summary
     bid = est["bid_summary"]
     print(f"\n{'=' * 72}")
-    print("  BID FORM SUMMARY (Div 00 41 00)")
+    print("  BID FORM SUMMARY")
     print(f"{'=' * 72}")
 
     item1 = bid["item_1_general_requirements"]
@@ -699,10 +1711,20 @@ def print_estimate(est: dict) -> None:
     print(f"     x {item3['labour_multiplier']}  ({item3['note']})")
     print(f"     Estimated: ${item3['estimated_cost']:>12,.2f}")
 
+    item4 = bid.get("item_4_other_costs", {})
+    if item4.get("cost", 0) > 0:
+        print(f"\n  4. {item4['description']}")
+        print(f"     Cost:     ${item4['cost']:>12,.2f}")
+
     print(f"\n  {'-' * 50}")
+    print(f"  TOTAL MATERIAL COST:     ${bid.get('total_material_cost', 0):>12,.2f}")
+    if bid.get("total_other_cost", 0) > 0:
+        print(f"  TOTAL OTHER COSTS:       ${bid['total_other_cost']:>12,.2f}")
     print(f"  TOTAL PROJECT ESTIMATE:  ${bid['total_estimate']:>12,.2f}")
     print(f"  {'-' * 50}")
-    print(f"  Per sqft:  ${bid['total_estimate'] / est['project_measurements']['total_roof_area_sqft']:>8,.2f} / sqft")
+    area = est['project_measurements']['total_roof_area_sqft']
+    if area > 0:
+        print(f"  Per sqft:  ${bid['total_estimate'] / area:>8,.2f} / sqft")
     print("=" * 72)
 
 

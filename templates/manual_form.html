@@ -4,9 +4,13 @@
 
 {% block content %}
 <h1>Manual Estimate</h1>
-<p>Enter measurements from scaled architectural drawings.</p>
+<p>Full Takeoff &amp; Flat Roof Summary — enter measurements from scaled drawings.</p>
 
 <form method="POST" action="/manual" class="estimate-form">
+
+    <!-- ============================================================ -->
+    <!-- SYSTEM TYPE -->
+    <!-- ============================================================ -->
     <fieldset>
         <legend>Roofing System Type</legend>
         <div class="form-row">
@@ -19,13 +23,38 @@
                 <option value="TPO_Fully_Adhered">TPO 60 mil Fully Adhered</option>
             </select>
         </div>
+        <div class="form-row">
+            <label for="sbs_base_type">SBS Base Sheet Type</label>
+            <select id="sbs_base_type" name="sbs_base_type">
+                <option value="torch">Torch Applied</option>
+                <option value="peel_stick">Peel &amp; Stick (Self-Adhered)</option>
+            </select>
+        </div>
     </fieldset>
 
+    <!-- ============================================================ -->
+    <!-- FLAT ROOF SECTIONS (Excel: Takeoff R5-R14) -->
+    <!-- ============================================================ -->
     <fieldset>
-        <legend>Areas (required)</legend>
+        <legend>Flat Roof Sections (up to 6)</legend>
+        <p class="hint">Enter each roof section. Leave rows blank to skip. Or enter a single total below.</p>
+        <table class="input-table">
+            <thead><tr><th>Section</th><th>#</th><th>Length (ft)</th><th>Width (ft)</th></tr></thead>
+            <tbody>
+            {% for i in range(1, 7) %}
+            <tr>
+                <td><input type="text" name="section_{{i}}_name" value="Section {{i}}" style="width:100px"></td>
+                <td><input type="number" name="section_{{i}}_count" value="1" min="1" style="width:50px"></td>
+                <td><input type="number" name="section_{{i}}_length" step="any" style="width:80px"></td>
+                <td><input type="number" name="section_{{i}}_width" step="any" style="width:80px"></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
         <div class="form-row">
-            <label for="total_roof_area">Total Roof Area (sqft)</label>
-            <input type="number" id="total_roof_area" name="total_roof_area" step="any" required>
+            <label for="total_roof_area">OR Total Roof Area (sqft) — used if sections above are empty</label>
+            <input type="number" id="total_roof_area" name="total_roof_area" step="any" value="0">
         </div>
         <div class="form-row">
             <label for="perimeter_lf">Roof Perimeter (LF)</label>
@@ -33,67 +62,335 @@
         </div>
     </fieldset>
 
+    <!-- ============================================================ -->
+    <!-- PERIMETER SECTIONS A-E (Excel: Takeoff R52-R58) -->
+    <!-- ============================================================ -->
     <fieldset>
-        <legend>Parapet</legend>
+        <legend>Perimeter Sections A-E</legend>
+        <p class="hint">Define up to 5 perimeter sections with type, height, LF, and difficulty.</p>
+        <table class="input-table">
+            <thead><tr>
+                <th>Sec</th><th>Type</th><th>Height (in)</th><th>LF</th>
+                <th>Fab Difficulty</th><th>Install Difficulty</th>
+            </tr></thead>
+            <tbody>
+            {% for letter in ["A","B","C","D","E"] %}
+            <tr>
+                <td>{{letter}}</td>
+                <td>
+                    <select name="perim_{{letter}}_type">
+                        <option value="parapet_no_facing">Parapet w/o Facing</option>
+                        <option value="parapet_w_facing">Parapet w/ Facing</option>
+                        <option value="interior_wall">Interior Wall</option>
+                        <option value="cant">Cant</option>
+                        <option value="divider_w_facing">Divider w/ Facing</option>
+                    </select>
+                </td>
+                <td><input type="number" name="perim_{{letter}}_height" value="24" step="any" style="width:60px"></td>
+                <td><input type="number" name="perim_{{letter}}_lf" step="any" style="width:70px" value="0"></td>
+                <td>
+                    <select name="perim_{{letter}}_fab">
+                        <option value="Easy">Easy</option>
+                        <option value="Normal" selected>Normal</option>
+                        <option value="Hard">Hard</option>
+                    </select>
+                </td>
+                <td>
+                    <select name="perim_{{letter}}_install">
+                        <option value="Easy">Easy</option>
+                        <option value="Normal" selected>Normal</option>
+                        <option value="Hard">Hard</option>
+                    </select>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="hint">OR simple parapet (used if sections above are all 0 LF):</p>
         <div class="form-row">
             <label for="parapet_length_lf">Parapet Length (LF)</label>
-            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="0" placeholder="Defaults to perimeter">
+            <input type="number" id="parapet_length_lf" name="parapet_length_lf" step="any" value="0">
         </div>
         <div class="form-row">
             <label for="parapet_height_ft">Parapet Height (ft)</label>
             <input type="number" id="parapet_height_ft" name="parapet_height_ft" step="any" value="2.0">
         </div>
-    </fieldset>
-
-    <fieldset>
-        <legend>Drains &amp; Scuppers</legend>
         <div class="form-row">
-            <label for="roof_drain_count">Roof Drains</label>
-            <input type="number" id="roof_drain_count" name="roof_drain_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="scupper_count">Overflow Scuppers</label>
-            <input type="number" id="scupper_count" name="scupper_count" value="0" min="0">
+            <label for="corner_count">Total Perimeter Corners</label>
+            <input type="number" id="corner_count" name="corner_count" value="0" min="0">
         </div>
     </fieldset>
 
+    <!-- ============================================================ -->
+    <!-- CURBS (Excel: Takeoff R31-R37) -->
+    <!-- ============================================================ -->
     <fieldset>
-        <legend>Equipment &amp; Penetrations</legend>
+        <legend>Curbs (Dimensioned)</legend>
+        <p class="hint">Enter L/W/H in inches for each curb type. Labour hours auto-calculated by height.</p>
+        <table class="input-table">
+            <thead><tr><th>Type</th><th>Count</th><th>Length (in)</th><th>Width (in)</th><th>Height (in)</th></tr></thead>
+            <tbody>
+            {% for ctype, clabel in [("RTU","RTU / Mechanical"),("Roof_Hatch","Roof Hatch"),("Vent_Curb","Vent Curb"),("Skylight","Skylight")] %}
+            <tr>
+                <td>{{clabel}}</td>
+                <td><input type="number" name="curb_{{ctype}}_count" value="0" min="0" style="width:50px"></td>
+                <td><input type="number" name="curb_{{ctype}}_length" value="48" step="any" style="width:60px"></td>
+                <td><input type="number" name="curb_{{ctype}}_width" value="48" step="any" style="width:60px"></td>
+                <td><input type="number" name="curb_{{ctype}}_height" value="18" step="any" style="width:60px"></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
         <div class="form-row">
-            <label for="mechanical_unit_count">Mechanical Units (RTUs)</label>
-            <input type="number" id="mechanical_unit_count" name="mechanical_unit_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="sleeper_curb_count">Sleeper Curbs</label>
-            <input type="number" id="sleeper_curb_count" name="sleeper_curb_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="vent_hood_count">Vent Hoods</label>
-            <input type="number" id="vent_hood_count" name="vent_hood_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="gas_penetration_count">Gas Penetrations</label>
-            <input type="number" id="gas_penetration_count" name="gas_penetration_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="electrical_penetration_count">Electrical Penetrations</label>
-            <input type="number" id="electrical_penetration_count" name="electrical_penetration_count" value="0" min="0">
-        </div>
-        <div class="form-row">
-            <label for="plumbing_vent_count">Plumbing Vents</label>
-            <input type="number" id="plumbing_vent_count" name="plumbing_vent_count" value="0" min="0">
+            <label for="extra_mechanical_hours">Extra Mechanical Hours</label>
+            <input type="number" id="extra_mechanical_hours" name="extra_mechanical_hours" value="0" step="any">
         </div>
     </fieldset>
 
+    <!-- ============================================================ -->
+    <!-- VENTS DETAIL (Excel: Takeoff R40-R50) -->
+    <!-- ============================================================ -->
     <fieldset>
-        <legend>Optional Overrides</legend>
+        <legend>Vents &amp; Penetrations (Detailed)</legend>
+        <p class="hint">Enter count and difficulty for each vent type. Hours auto-calculated.</p>
+        <table class="input-table">
+            <thead><tr><th>Vent Type</th><th>Count</th><th>Difficulty / Type</th></tr></thead>
+            <tbody>
+            <tr>
+                <td>Pipe Boots</td>
+                <td><input type="number" name="vent_pipe_boot_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_pipe_boot_difficulty"><option value="Normal">Normal</option><option value="Hard">Hard</option></select></td>
+            </tr>
+            <tr>
+                <td>B-Vents</td>
+                <td><input type="number" name="vent_b_vent_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_b_vent_difficulty"><option value="No_Curb">No Curb (3hr)</option><option value="Curb">Curb (5hr)</option></select></td>
+            </tr>
+            <tr>
+                <td>Hood Vents</td>
+                <td><input type="number" name="vent_hood_vent_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_hood_vent_difficulty"><option value="Normal">Normal (-1hr)</option><option value="Hard">Hard (+1hr)</option></select></td>
+            </tr>
+            <tr>
+                <td>Plumbing Vents</td>
+                <td><input type="number" name="vent_plumb_vent_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_plumb_vent_difficulty"><option value="Normal">Normal</option><option value="Hard">Hard</option></select></td>
+            </tr>
+            <tr>
+                <td>Gum Boxes</td>
+                <td><input type="number" name="vent_gum_box_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_gum_box_difficulty"><option value="Normal">Normal</option><option value="Hard">Hard</option></select></td>
+            </tr>
+            <tr>
+                <td>Scuppers</td>
+                <td><input type="number" name="vent_scupper_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_scupper_difficulty"><option value="Easy">Easy</option><option value="Normal">Normal</option><option value="Hard">Hard</option></select></td>
+            </tr>
+            <tr>
+                <td>Radon Pipes</td>
+                <td><input type="number" name="vent_radon_pipe_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_radon_pipe_difficulty"><option value="Normal">Normal</option><option value="Hard">Hard</option></select></td>
+            </tr>
+            <tr>
+                <td>Drains</td>
+                <td><input type="number" name="vent_drain_count" value="0" min="0" style="width:50px"></td>
+                <td><select name="vent_drain_difficulty"><option value="Drop_Drain">Drop Drain (-1hr)</option><option value="Normal">Normal</option><option value="Mech_Attachment">Mech Attachment (+1hr)</option></select></td>
+            </tr>
+            </tbody>
+        </table>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- LEGACY SIMPLE COUNTS (fallback) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Simple Equipment Counts (fallback if Vents/Curbs above are empty)</legend>
         <div class="form-row">
-            <label for="tapered_area_sqft">Tapered Insulation Area (sqft)</label>
-            <input type="number" id="tapered_area_sqft" name="tapered_area_sqft" step="any" value="0" placeholder="0 = full roof area">
+            <label>Roof Drains</label>
+            <input type="number" name="roof_drain_count" value="0" min="0">
         </div>
         <div class="form-row">
-            <label for="ballast_area_sqft">Ballast Area (sqft)</label>
-            <input type="number" id="ballast_area_sqft" name="ballast_area_sqft" step="any" value="0" placeholder="0 = full roof area">
+            <label>Overflow Scuppers</label>
+            <input type="number" name="scupper_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Mechanical Units (RTUs)</label>
+            <input type="number" name="mechanical_unit_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Sleeper Curbs</label>
+            <input type="number" name="sleeper_curb_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Vent Hoods</label>
+            <input type="number" name="vent_hood_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Gas Penetrations</label>
+            <input type="number" name="gas_penetration_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Electrical Penetrations</label>
+            <input type="number" name="electrical_penetration_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Plumbing Vents</label>
+            <input type="number" name="plumbing_vent_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Gum Boxes</label>
+            <input type="number" name="gum_box_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>B-Vents</label>
+            <input type="number" name="b_vent_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Radon Pipes</label>
+            <input type="number" name="radon_pipe_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Roof Hatches</label>
+            <input type="number" name="roof_hatch_count" value="0" min="0">
+        </div>
+        <div class="form-row">
+            <label>Skylights</label>
+            <input type="number" name="skylight_count" value="0" min="0">
+        </div>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- WOOD WORK (Excel: Takeoff R67-R76) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Wood Work Sections (up to 3)</legend>
+        <table class="input-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Lumber</th><th>Height (ft)</th><th>LF</th><th>Spacing (in)</th><th>Layers</th></tr></thead>
+            <tbody>
+            {% for i in range(1, 4) %}
+            <tr>
+                <td><input type="text" name="wood_{{i}}_name" style="width:80px"></td>
+                <td>
+                    <select name="wood_{{i}}_type">
+                        <option value="vertical">Vertical</option>
+                        <option value="horizontal">Horizontal</option>
+                        <option value="plywood">Plywood</option>
+                    </select>
+                </td>
+                <td>
+                    <select name="wood_{{i}}_lumber">
+                        <option value="cant_4x4">Cant 4x4</option>
+                        <option value="lumber_2x4" selected>2x4</option>
+                        <option value="lumber_2x6">2x6</option>
+                        <option value="lumber_2x10">2x10</option>
+                        <option value="plywood_3_4">Plywood 3/4"</option>
+                        <option value="plywood_1_2">Plywood 1/2"</option>
+                    </select>
+                </td>
+                <td><input type="number" name="wood_{{i}}_height" step="any" style="width:60px" value="0"></td>
+                <td><input type="number" name="wood_{{i}}_lf" step="any" style="width:60px" value="0"></td>
+                <td><input type="number" name="wood_{{i}}_spacing" value="16" step="any" style="width:50px"></td>
+                <td><input type="number" name="wood_{{i}}_layers" value="1" min="1" style="width:40px"></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- BATT INSULATION (Excel: Takeoff R77-R83) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Batt Insulation (Pony Walls, up to 3)</legend>
+        <table class="input-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Height (ft)</th><th>LF</th><th>Layers</th></tr></thead>
+            <tbody>
+            {% for i in range(1, 4) %}
+            <tr>
+                <td><input type="text" name="batt_{{i}}_name" style="width:100px"></td>
+                <td>
+                    <select name="batt_{{i}}_type">
+                        <option value="R12">R12</option>
+                        <option value="R14">R14</option>
+                        <option value="R22">R22</option>
+                        <option value="R24" selected>R24</option>
+                    </select>
+                </td>
+                <td><input type="number" name="batt_{{i}}_height" step="any" style="width:60px" value="0"></td>
+                <td><input type="number" name="batt_{{i}}_lf" step="any" style="width:60px" value="0"></td>
+                <td><input type="number" name="batt_{{i}}_layers" value="1" min="1" style="width:40px"></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- MATERIAL TOGGLES (Excel: FRS D column) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Material Options &amp; Toggles</legend>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_vapour_barrier" checked> Include Vapour Barrier</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_insulation" checked> Include Insulation</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_coverboard" checked> Include Coverboard</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_tapered" checked> Include Tapered Insulation</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_drainage" checked> Include Drainage Layer</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="vapour_barrier_tie_in"> Vapour Barrier Tie-In (to existing VB)</label>
+        </div>
+        <div class="form-row">
+            <label for="metal_flashing_type">Metal Flashing Type</label>
+            <select id="metal_flashing_type" name="metal_flashing_type">
+                <option value="galvanized">Galvanized w/ Clips</option>
+                <option value="prepainted">Prepainted</option>
+                <option value="cladding">Cladding Panels</option>
+            </select>
+        </div>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- OTHER COSTS (Excel: FRS R123-R125) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Other Costs</legend>
+        <div class="form-row">
+            <label for="delivery_count">Number of Deliveries (@ $250 each)</label>
+            <input type="number" id="delivery_count" name="delivery_count" value="1" min="0">
+        </div>
+        <div class="form-row">
+            <label for="disposal_roof_count">Number of Roofs for Disposal (@ $70/sq)</label>
+            <input type="number" id="disposal_roof_count" name="disposal_roof_count" value="1" min="0">
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_toilet"> Include Portable Toilet Rental ($250/month)</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_fencing"> Include Temporary Fencing</label>
+        </div>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- OPTIONAL AREA OVERRIDES -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Optional Area Overrides</legend>
+        <div class="form-row">
+            <label for="tapered_area_sqft">Tapered Insulation Area (sqft, 0 = full roof)</label>
+            <input type="number" id="tapered_area_sqft" name="tapered_area_sqft" step="any" value="0">
+        </div>
+        <div class="form-row">
+            <label for="ballast_area_sqft">Ballast Area (sqft, 0 = full roof)</label>
+            <input type="number" id="ballast_area_sqft" name="ballast_area_sqft" step="any" value="0">
         </div>
     </fieldset>
 

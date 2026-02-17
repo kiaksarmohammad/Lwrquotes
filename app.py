@@ -80,42 +80,160 @@ def manual_form(request: Request):
 
 
 @app.post("/manual", response_class=HTMLResponse)
-def manual_estimate(
-    request: Request,
-    roof_system_type: str = Form("SBS"),
-    total_roof_area: float = Form(...),
-    perimeter_lf: float = Form(...),
-    parapet_length_lf: float = Form(0),
-    parapet_height_ft: float = Form(2.0),
-    roof_drain_count: int = Form(0),
-    scupper_count: int = Form(0),
-    mechanical_unit_count: int = Form(0),
-    sleeper_curb_count: int = Form(0),
-    vent_hood_count: int = Form(0),
-    gas_penetration_count: int = Form(0),
-    electrical_penetration_count: int = Form(0),
-    plumbing_vent_count: int = Form(0),
-    tapered_area_sqft: float = Form(0),
-    ballast_area_sqft: float = Form(0),
-):
-    from backend.roof_estimator import RoofMeasurements, calculate_takeoff
+async def manual_estimate(request: Request):
+    from backend.roof_estimator import (
+        RoofMeasurements, RoofSection, CurbDetail, PerimeterSection,
+        VentItem, WoodWorkSection, BattInsulationSection, calculate_takeoff,
+    )
+
+    form = await request.form()
+
+    def fval(key, default=0.0):
+        v = form.get(key, "")
+        try:
+            return float(v) if v else default
+        except (ValueError, TypeError):
+            return default
+
+    def ival(key, default=0):
+        v = form.get(key, "")
+        try:
+            return int(float(v)) if v else default
+        except (ValueError, TypeError):
+            return default
+
+    def sval(key, default=""):
+        return form.get(key, default) or default
+
+    def bval(key):
+        return form.get(key) == "on"
+
+    # --- Basic fields ---
+    roof_system_type = sval("roof_system_type", "SBS")
+    total_roof_area = fval("total_roof_area")
+    perimeter_lf = fval("perimeter_lf")
+    parapet_length_lf = fval("parapet_length_lf")
+    parapet_height_ft = fval("parapet_height_ft", 2.0)
+
+    # --- Multi-section roof (6 sections) ---
+    roof_sections = []
+    for i in range(1, 7):
+        l = fval(f"section_{i}_length")
+        w = fval(f"section_{i}_width")
+        c = ival(f"section_{i}_count", 1)
+        if l > 0 and w > 0:
+            roof_sections.append(RoofSection(
+                name=sval(f"section_{i}_name", f"Section {i}"),
+                count=max(c, 1), length_ft=l, width_ft=w,
+            ))
+
+    # --- Curbs with dimensions (4 types) ---
+    curbs = []
+    for ctype in ["RTU", "Roof_Hatch", "Vent_Curb", "Skylight"]:
+        cnt = ival(f"curb_{ctype}_count")
+        if cnt > 0:
+            curbs.append(CurbDetail(
+                curb_type=ctype, count=cnt,
+                length_in=fval(f"curb_{ctype}_length", 48),
+                width_in=fval(f"curb_{ctype}_width", 48),
+                height_in=fval(f"curb_{ctype}_height", 18),
+            ))
+
+    # --- Perimeter sections (A-E) ---
+    perimeter_sections = []
+    for letter in "ABCDE":
+        lf = fval(f"perim_{letter}_lf")
+        if lf > 0:
+            perimeter_sections.append(PerimeterSection(
+                name=letter,
+                perimeter_type=sval(f"perim_{letter}_type", "parapet_no_facing"),
+                height_in=fval(f"perim_{letter}_height", 24),
+                lf=lf,
+                fabrication_difficulty=sval(f"perim_{letter}_fab", "Normal"),
+                install_difficulty=sval(f"perim_{letter}_install", "Normal"),
+            ))
+
+    # --- Vents with type/difficulty (8 types) ---
+    vents = []
+    for vtype in ["pipe_boot", "b_vent", "hood_vent", "plumb_vent",
+                   "gum_box", "scupper", "radon_pipe", "drain"]:
+        cnt = ival(f"vent_{vtype}_count")
+        if cnt > 0:
+            vents.append(VentItem(
+                vent_type=vtype, count=cnt,
+                difficulty=sval(f"vent_{vtype}_difficulty", "Normal"),
+            ))
+
+    # --- Wood work sections (up to 3) ---
+    wood_sections = []
+    for i in range(1, 4):
+        lf = fval(f"wood_{i}_lf")
+        if lf > 0:
+            wood_sections.append(WoodWorkSection(
+                name=sval(f"wood_{i}_name", f"Wood Section {i}"),
+                wood_type=sval(f"wood_{i}_type", "vertical"),
+                height_ft=fval(f"wood_{i}_height"),
+                lf=lf,
+                spacing_in=fval(f"wood_{i}_spacing", 16),
+                layers=ival(f"wood_{i}_layers", 1),
+                lumber_size=sval(f"wood_{i}_lumber", "lumber_2x4"),
+            ))
+
+    # --- Batt insulation sections (up to 3) ---
+    batt_sections = []
+    for i in range(1, 4):
+        lf = fval(f"batt_{i}_lf")
+        if lf > 0:
+            batt_sections.append(BattInsulationSection(
+                name=sval(f"batt_{i}_name", f"Batt Section {i}"),
+                height_ft=fval(f"batt_{i}_height"),
+                lf=lf,
+                insulation_type=sval(f"batt_{i}_type", "R24"),
+                layers=ival(f"batt_{i}_layers", 1),
+            ))
 
     m = RoofMeasurements(
         total_roof_area_sqft=total_roof_area,
         perimeter_lf=perimeter_lf,
         parapet_length_lf=parapet_length_lf or perimeter_lf,
         parapet_height_ft=parapet_height_ft,
-        roof_drain_count=roof_drain_count,
-        scupper_count=scupper_count,
-        mechanical_unit_count=mechanical_unit_count,
-        sleeper_curb_count=sleeper_curb_count,
-        vent_hood_count=vent_hood_count,
-        gas_penetration_count=gas_penetration_count,
-        electrical_penetration_count=electrical_penetration_count,
-        plumbing_vent_count=plumbing_vent_count,
-        tapered_area_sqft=tapered_area_sqft or None,
-        ballast_area_sqft=ballast_area_sqft or None,
+        roof_sections=roof_sections,
+        curbs=curbs,
+        extra_mechanical_hours=fval("extra_mechanical_hours"),
+        perimeter_sections=perimeter_sections,
+        corner_count=ival("corner_count"),
+        vents=vents,
+        # Legacy counts as fallback
+        roof_drain_count=ival("roof_drain_count"),
+        scupper_count=ival("scupper_count"),
+        mechanical_unit_count=ival("mechanical_unit_count"),
+        sleeper_curb_count=ival("sleeper_curb_count"),
+        vent_hood_count=ival("vent_hood_count"),
+        gas_penetration_count=ival("gas_penetration_count"),
+        electrical_penetration_count=ival("electrical_penetration_count"),
+        plumbing_vent_count=ival("plumbing_vent_count"),
+        gum_box_count=ival("gum_box_count"),
+        b_vent_count=ival("b_vent_count"),
+        radon_pipe_count=ival("radon_pipe_count"),
+        roof_hatch_count=ival("roof_hatch_count"),
+        skylight_count=ival("skylight_count"),
+        tapered_area_sqft=fval("tapered_area_sqft") or None,
+        ballast_area_sqft=fval("ballast_area_sqft") or None,
         roof_system_type=roof_system_type,
+        wood_sections=wood_sections,
+        batt_sections=batt_sections,
+        delivery_count=ival("delivery_count", 1),
+        disposal_roof_count=ival("disposal_roof_count", 1),
+        include_toilet=bval("include_toilet"),
+        include_fencing=bval("include_fencing"),
+        metal_flashing_type=sval("metal_flashing_type", "galvanized"),
+        include_vapour_barrier=bval("include_vapour_barrier") if "include_vapour_barrier" in form else True,
+        include_insulation=bval("include_insulation") if "include_insulation" in form else True,
+        include_coverboard=bval("include_coverboard") if "include_coverboard" in form else True,
+        include_tapered=bval("include_tapered") if "include_tapered" in form else True,
+        include_drainage=bval("include_drainage") if "include_drainage" in form else True,
+        vapour_barrier_tie_in=bval("vapour_barrier_tie_in"),
+        sbs_base_type=sval("sbs_base_type", "torch"),
     )
 
     estimate = calculate_takeoff(m)

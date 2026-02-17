@@ -5,7 +5,7 @@
 {% block content %}
 {% set meas = estimate.project_measurements %}
 <h1>Roofing Quantity Takeoff &amp; Cost Estimate</h1>
-<p class="subtitle">{{ meas.roof_system_name }} | Spec: {{ meas.spec }}</p>
+<p class="subtitle">{{ meas.roof_system_name }} | Spec: {{ meas.spec }} | {{ meas.layer_count }} layers</p>
 
 <div class="summary-bar">
     <div class="summary-item">
@@ -24,7 +24,102 @@
         <span class="label">Penetrations</span>
         <span class="value">{{ meas.total_penetrations }}</span>
     </div>
+    {% if meas.corner_count > 0 %}
+    <div class="summary-item">
+        <span class="label">Corners</span>
+        <span class="value">{{ meas.corner_count }}</span>
+    </div>
+    {% endif %}
 </div>
+
+<!-- Roof Sections Breakdown -->
+{% if estimate.roof_sections %}
+<h2>Roof Sections</h2>
+<table class="results-table">
+    <thead><tr><th>Section</th><th>#</th><th>Length</th><th>Width</th><th>Area</th></tr></thead>
+    <tbody>
+        {% for sec in estimate.roof_sections %}
+        <tr>
+            <td>{{ sec.name }}</td>
+            <td>{{ sec.count }}</td>
+            <td>{{ sec.length_ft }} ft</td>
+            <td>{{ sec.width_ft }} ft</td>
+            <td>{{ sec.area_sqft | number }} sqft</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Perimeter Section Details -->
+{% if estimate.perimeter_details %}
+<h2>Perimeter Section Details</h2>
+<p class="section-desc">Girth calculations per perimeter type</p>
+<table class="results-table">
+    <thead><tr>
+        <th>Sec</th><th>Type</th><th>Height</th><th>LF</th>
+        <th>Strip Girth</th><th>Strip sqft</th><th>Metal Girth</th><th>Metal sqft</th><th>Sheets</th><th>Wood Face</th>
+    </tr></thead>
+    <tbody>
+        {% for p in estimate.perimeter_details %}
+        <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.type }}</td>
+            <td>{{ p.height_in }}"</td>
+            <td>{{ p.lf | number }}</td>
+            <td>{{ p.strip_girth_in }}"</td>
+            <td>{{ p.strip_sqft | number }}</td>
+            <td>{{ p.metal_girth_in }}"</td>
+            <td>{{ p.metal_sqft | number }}</td>
+            <td>{{ p.metal_sheets }}</td>
+            <td>{% if p.wood_face_sqft > 0 %}{{ p.wood_face_sqft | number }} sqft{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Curb Details -->
+{% if estimate.curb_details %}
+<h2>Curb Details</h2>
+<p class="section-desc">Dimensioned curbs with perimeter, flashing, and labour hours</p>
+<table class="results-table">
+    <thead><tr><th>Type</th><th>Count</th><th>Dimensions</th><th>Perimeter</th><th>Flash sqft</th><th>Labour Hrs</th><th>Flash Cost</th></tr></thead>
+    <tbody>
+        {% for c in estimate.curb_details %}
+        <tr>
+            <td>{{ c.curb_type }}</td>
+            <td>{{ c.count }}</td>
+            <td>{{ c.dimensions }}</td>
+            <td>{{ c.perimeter_lf }} LF</td>
+            <td>{{ c.flashing_sqft }}</td>
+            <td>{{ c.labour_hours }}</td>
+            <td>{{ c.flashing_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Vent Details -->
+{% if estimate.vent_details %}
+<h2>Vent Details</h2>
+<p class="section-desc">Type-specific with difficulty-adjusted hours</p>
+<table class="results-table">
+    <thead><tr><th>Vent Type</th><th>Count</th><th>Difficulty</th><th>Hrs/Unit</th><th>Total Hours</th></tr></thead>
+    <tbody>
+        {% for v in estimate.vent_details %}
+        <tr>
+            <td>{{ v.vent_type }}</td>
+            <td>{{ v.count }}</td>
+            <td>{{ v.difficulty }}</td>
+            <td>{{ v.hours_per_unit }}</td>
+            <td>{{ v.total_hours }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
 
 <!-- Area-Based Materials -->
 <h2>Area-Based Materials</h2>
@@ -85,6 +180,26 @@
     </tbody>
 </table>
 
+<!-- EPDM / TPO Detail Materials -->
+{% if estimate.epdm_tpo_details %}
+<h2>System-Specific Materials (EPDM/TPO)</h2>
+<p class="section-desc">Computed quantity formulas</p>
+<table class="results-table">
+    <thead><tr><th>Material</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Line Cost</th></tr></thead>
+    <tbody>
+        {% for item in estimate.epdm_tpo_details %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
 <!-- Unit Items -->
 {% if estimate.unit_items %}
 <h2>Unit Items</h2>
@@ -116,8 +231,8 @@
 {% endif %}
 
 <!-- Consumables -->
-<h2>Consumables</h2>
-<p class="section-desc">Mastic, adhesive, sealant</p>
+<h2>Consumables &amp; Accessories</h2>
+<p class="section-desc">Mastic, adhesive, sealant, accessories (field + wall)</p>
 <table class="results-table">
     <thead>
         <tr>
@@ -139,10 +254,70 @@
     </tbody>
 </table>
 
+<!-- Wood Materials -->
+{% if estimate.wood_materials %}
+<h2>Wood Work Materials</h2>
+<table class="results-table">
+    <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Layers</th><th>Unit Price</th><th>Line Cost</th></tr></thead>
+    <tbody>
+        {% for item in estimate.wood_materials %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit }}</td>
+            <td>{{ item.layers }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Batt Insulation -->
+{% if estimate.batt_insulation %}
+<h2>Batt Insulation</h2>
+<table class="results-table">
+    <thead><tr><th>Section</th><th>Area</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Line Cost</th></tr></thead>
+    <tbody>
+        {% for item in estimate.batt_insulation %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.sqft | number }} sqft</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- Other Costs -->
+{% if estimate.other_costs %}
+<h2>Other Costs</h2>
+<p class="section-desc">Delivery, disposal, temporary facilities</p>
+<table class="results-table">
+    <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Line Cost</th></tr></thead>
+    <tbody>
+        {% for item in estimate.other_costs %}
+        <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit }}</td>
+            <td>{{ item.unit_price | currency }}</td>
+            <td>{{ item.line_cost | currency }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
 <!-- Bid Summary -->
 {% set bid = estimate.bid_summary %}
 <div class="bid-summary">
-    <h2>Bid Form Summary (Div 00 41 00)</h2>
+    <h2>Bid Form Summary</h2>
 
     <div class="bid-item">
         <h3>1. {{ bid.item_1_general_requirements.description }}</h3>
@@ -164,6 +339,23 @@
         <p class="bid-cost">{{ bid.item_3_mechanical_support.estimated_cost | currency }}</p>
     </div>
 
+    {% if bid.item_4_other_costs.cost > 0 %}
+    <div class="bid-item">
+        <h3>4. {{ bid.item_4_other_costs.description }}</h3>
+        <p class="bid-cost">{{ bid.item_4_other_costs.cost | currency }}</p>
+    </div>
+    {% endif %}
+
+    <div class="bid-total">
+        <span class="label">Total Material Cost</span>
+        <span class="value">{{ bid.total_material_cost | currency }}</span>
+    </div>
+    {% if bid.total_other_cost > 0 %}
+    <div class="bid-total">
+        <span class="label">Total Other Costs</span>
+        <span class="value">{{ bid.total_other_cost | currency }}</span>
+    </div>
+    {% endif %}
     <div class="bid-total">
         <span class="label">Total Project Estimate</span>
         <span class="value">{{ bid.total_estimate | currency }}</span>

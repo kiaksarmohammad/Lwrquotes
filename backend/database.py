@@ -809,6 +809,108 @@ COMMON_ROOF_MATERIALS = {
         "unit": "roll",
         "sample_descriptions": ["Sopralap (Cover Strip)"],
     },
+    # --- Metal Flashing Types (Excel: FRS R111-R113) ---
+    "Metal_Flashing_Galvanized": {
+        "canonical_name": "Galvanized Metal Flashing w/ Clips (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 12.50,
+        "unit": "LF",
+        "sample_descriptions": ["24ga galv cap flashing", "galvanized counter flashing"],
+    },
+    "Metal_Flashing_Prepainted": {
+        "canonical_name": "Prepainted Metal Flashing (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 18.00,
+        "unit": "LF",
+        "sample_descriptions": ["24ga prepainted cap flashing", "colored metal flashing"],
+    },
+    "Metal_Cladding_Panel": {
+        "canonical_name": "Cladding Panel",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 10.95,
+        "unit": "sqft",
+        "sample_descriptions": ["Metal cladding panel", "WF-ALLCLAD PANEL 24GA"],
+    },
+    # --- Wood Products (Excel: FRS R115-R120) ---
+    "Cant_Strip_4x4": {
+        "canonical_name": "Cant Strip 4x4",
+        "category": "Wood & Sheathing",
+        "avg_price": 8.50,
+        "unit": "8ft piece",
+        "sample_descriptions": ["4x4 cant strip", "wood cant 4x4x8"],
+    },
+    "Lumber_2x4": {
+        "canonical_name": "SPF 2x4",
+        "category": "Wood & Sheathing",
+        "avg_price": 5.50,
+        "unit": "8ft piece",
+        "sample_descriptions": ["SPF 2x4x8", "2x4 lumber"],
+    },
+    "Lumber_2x6": {
+        "canonical_name": "SPF 2x6",
+        "category": "Wood & Sheathing",
+        "avg_price": 8.25,
+        "unit": "8ft piece",
+        "sample_descriptions": ["SPF 2x6x8", "2x6 lumber"],
+    },
+    "Lumber_2x10": {
+        "canonical_name": "SPF 2x10",
+        "category": "Wood & Sheathing",
+        "avg_price": 14.50,
+        "unit": "8ft piece",
+        "sample_descriptions": ["SPF 2x10x8", "2x10 lumber"],
+    },
+    "Plywood_Three_Quarter": {
+        "canonical_name": "Plywood 3/4 inch",
+        "category": "Wood & Sheathing",
+        "avg_price": 65.00,
+        "unit": "4x8 sheet",
+        "sample_descriptions": ["4X8X3/4 STD FIR SHEATHING"],
+    },
+    "Plywood_Half": {
+        "canonical_name": "Plywood 1/2 inch",
+        "category": "Wood & Sheathing",
+        "avg_price": 42.00,
+        "unit": "4x8 sheet",
+        "sample_descriptions": ["4X8X1/2 STD FIR SHEATHING"],
+    },
+    # --- Roofing Accessories (Excel: FRS R48-R59) ---
+    "Screws_Plates_Combo": {
+        "canonical_name": "Screws & Plates Combo",
+        "category": "Fasteners & Hardware",
+        "avg_price": 350.00,
+        "unit": "box (1M)",
+        "sample_descriptions": ["Fastener + plate combo box (1000)"],
+    },
+    "Flashing_Bond_Mastic": {
+        "canonical_name": "Flashing Bond Mastic",
+        "category": "Sealants & Adhesives",
+        "avg_price": 45.00,
+        "unit": "tube",
+        "sample_descriptions": ["Flashing bond mastic", "Detail mastic"],
+    },
+    "Asphalt_Adhesive": {
+        "canonical_name": "Asphalt Flood Coat",
+        "category": "Sealants & Adhesives",
+        "avg_price": 175.00,
+        "unit": "pail",
+        "sample_descriptions": ["Asphalt flood coat adhesive 5 gal"],
+    },
+    "Catalyst": {
+        "canonical_name": "Catalyst",
+        "category": "Sealants & Adhesives",
+        "avg_price": 35.00,
+        "unit": "can",
+        "sample_descriptions": ["Adhesive catalyst"],
+    },
+    # --- Vents & Penetrations additions ---
+    "Gum_Box": {
+        "canonical_name": "Gum Box / Catchment",
+        "category": "Vents & Penetrations",
+        "avg_price": 125.00,
+        "unit": "EA",
+        "sample_descriptions": ["Gum box", "Catchment box"],
+    },
 }
 
 # ---------------------------------------------------------------------------
