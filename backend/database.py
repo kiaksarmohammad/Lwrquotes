@@ -479,7 +479,8 @@ PRICING = {
         "unit": "Piece",
         "sample_descriptions": ["SPF 2x4x8", "SPF 2x4x10", "SPF 2x6x8"],
     },
-    # Per-sqft / per-unit composite rates for satellite-based estimator
+    # Per-sqft / per-unit composite rates for address-based estimator
+    "SBS_2Ply_Modified_Bitumen": 7.00,
     "TPO_60mil_Mechanically_Attached": 5.50,
     "EPDM_60mil_Fully_Adhered": 6.00,
     "ISO_Insulation_2_Layer": 3.75,

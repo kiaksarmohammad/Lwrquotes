@@ -201,9 +201,14 @@ def estimate_flat_roof(insights: dict, system_type: str = "TPO",
     total_membrane_sqft = (field_area_sqft + parapet_vertical_area) * 1.10
 
     # Costs
-    price_per_sqft = (PRICING["TPO_60mil_Mechanically_Attached"]
-                      if system_type == "TPO"
-                      else PRICING["EPDM_60mil_Fully_Adhered"])
+    SYSTEM_PRICING = {
+        "SBS": PRICING["SBS_2Ply_Modified_Bitumen"],
+        "TPO": PRICING["TPO_60mil_Mechanically_Attached"],
+        "EPDM": PRICING["EPDM_60mil_Fully_Adhered"],
+    }
+    if system_type not in SYSTEM_PRICING:
+        raise ValueError(f"Unsupported system type: {system_type}. Choose SBS, TPO, or EPDM.")
+    price_per_sqft = SYSTEM_PRICING[system_type]
 
     cost_membrane = total_membrane_sqft * price_per_sqft
     cost_insulation = field_area_sqft * PRICING["ISO_Insulation_2_Layer"]
