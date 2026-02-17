@@ -21,14 +21,54 @@
         <span class="value">{{ result.metrics.footprint_area_sqft | number }} sqft</span>
     </div>
     <div class="summary-item">
-        <span class="label">Perimeter</span>
+        <span class="label">Roof Surface Area</span>
+        <span class="value">{{ result.metrics.roof_surface_area_sqft | number }} sqft</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Perimeter (est.)</span>
         <span class="value">{{ result.metrics.perimeter_linear_ft | number }} LF</span>
     </div>
     <div class="summary-item">
         <span class="label">Est. HVAC Units</span>
         <span class="value">{{ result.metrics.est_hvac_units }}</span>
     </div>
+    <div class="summary-item">
+        <span class="label">Roof Segments</span>
+        <span class="value">{{ result.metrics.num_roof_segments }}</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Imagery Quality</span>
+        <span class="value">{{ result.metrics.imagery_quality }}</span>
+    </div>
 </div>
+
+{% if result.roof_segments %}
+<h2>Roof Segments</h2>
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Pitch</th>
+            <th>Direction</th>
+            <th>Surface Area</th>
+            <th>Footprint Area</th>
+            <th>Height</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for seg in result.roof_segments %}
+        <tr>
+            <td>{{ seg.segment_number }}</td>
+            <td>{{ seg.pitch_degrees }}&deg;</td>
+            <td>{{ seg.compass_direction }} ({{ seg.azimuth_degrees }}&deg;)</td>
+            <td>{{ seg.surface_area_sqft | number }} sqft</td>
+            <td>{{ seg.ground_area_sqft | number }} sqft</td>
+            <td>{{ seg.height_ft }} ft</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
 
 <div class="bid-summary">
     <h2>Cost Estimate</h2>
@@ -44,7 +84,8 @@
 </div>
 
 <div class="alert alert-info">
-    This is a rough estimate based on satellite building footprint data. For a detailed quantity takeoff, use the <a href="/manual">Manual Estimate</a> or <a href="/drawing">Drawing Analysis</a> workflow.
+    This is a rough estimate based on Google Solar API roof data. Perimeter is estimated from the building bounding box.
+    For a detailed quantity takeoff, use the <a href="/manual">Manual Estimate</a> or <a href="/drawing">Drawing Analysis</a> workflow.
 </div>
 
 <div class="actions">

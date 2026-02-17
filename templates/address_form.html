@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Address-Based Estimate</h1>
-<p>Enter a commercial building address to query satellite building footprint data and generate a cost estimate.</p>
+<p>Enter a commercial building address to query Google Solar API roof data and generate a cost estimate.</p>
 
 <form method="POST" action="/address" class="estimate-form">
     <fieldset>
@@ -37,7 +37,7 @@
     </fieldset>
 
     <div class="alert alert-info">
-        This process queries Microsoft Building Footprints via satellite data. It may take 15-30 seconds.
+        This process queries the Google Solar API for building roof data. It typically takes 2-5 seconds.
     </div>
 
     <button type="submit" class="btn btn-primary">Get Estimate</button>

@@ -142,18 +142,18 @@ async def address_estimate(
     parapet_height: float = Form(2.0),
 ):
     try:
-        from backend.buildingfootprintquery import get_commercial_footprint, estimate_flat_roof
+        from backend.buildingfootprintquery import get_building_insights, estimate_flat_roof
         import asyncio
 
         loop = asyncio.get_running_loop()
-        
-        # Run geocoding and footprint query in a thread pool
-        polygon = await loop.run_in_executor(
-            None, get_commercial_footprint, address
+
+        # Run geocoding and Solar API query in a thread pool
+        insights = await loop.run_in_executor(
+            None, get_building_insights, address
         )
-        
+
         result = estimate_flat_roof(
-            polygon, system_type=system_type, parapet_height_ft=parapet_height
+            insights, system_type=system_type, parapet_height_ft=parapet_height
         )
         return templates.TemplateResponse("address_result.html", {
             "request": request,
