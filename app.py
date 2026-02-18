@@ -83,7 +83,8 @@ def manual_form(request: Request):
 async def manual_estimate(request: Request):
     from backend.roof_estimator import (
         RoofMeasurements, RoofSection, CurbDetail, PerimeterSection,
-        VentItem, WoodWorkSection, BattInsulationSection, calculate_takeoff,
+        VentItem, WoodWorkSection, BattInsulationSection,
+        ProjectSettings, calculate_takeoff,
     )
 
     form = await request.form()
@@ -192,6 +193,15 @@ async def manual_estimate(request: Request):
                 layers=ival(f"batt_{i}_layers", 1),
             ))
 
+    # --- Project Settings ---
+    project_settings = ProjectSettings(
+        floor_count=ival("floor_count", 1),
+        hot_work=bval("hot_work"),
+        tear_off=bval("tear_off"),
+        interior_access_only=bval("interior_access_only"),
+        winter_conditions=bval("winter_conditions"),
+    )
+
     m = RoofMeasurements(
         total_roof_area_sqft=total_roof_area,
         perimeter_lf=perimeter_lf,
@@ -234,6 +244,22 @@ async def manual_estimate(request: Request):
         include_drainage=bval("include_drainage") if "include_drainage" in form else True,
         vapour_barrier_tie_in=bval("vapour_barrier_tie_in"),
         sbs_base_type=sval("sbs_base_type", "torch"),
+        # New fields from audit
+        project_settings=project_settings,
+        fire_board_scope=sval("fire_board_scope", "None"),
+        vapour_barrier_attachment=sval("vapour_barrier_attachment", "Torched"),
+        vapour_barrier_product=sval("vapour_barrier_product", "Sopravapor"),
+        include_asphalt_easymelt=bval("include_asphalt_easymelt"),
+        include_pmma=bval("include_pmma"),
+        garland_system=bval("garland_system"),
+        second_iso_layer=bval("second_iso_layer"),
+        third_iso_layer=bval("third_iso_layer"),
+        version=sval("version", ""),
+        ballast_type=sval("ballast_type", "BUR"),
+        eps_thickness_in=fval("eps_thickness_in", 2.5),
+        tpo_second_membrane=bval("tpo_second_membrane"),
+        include_tpo_flashing_24=bval("include_tpo_flashing_24") if "include_tpo_flashing_24" in form else True,
+        include_tpo_flashing_12=bval("include_tpo_flashing_12"),
     )
 
     estimate = calculate_takeoff(m)

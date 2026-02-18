@@ -30,6 +30,35 @@
                 <option value="peel_stick">Peel &amp; Stick (Self-Adhered)</option>
             </select>
         </div>
+        <div class="form-row">
+            <label for="version">Version</label>
+            <input type="text" id="version" name="version" placeholder="e.g. v1.0" style="width:100px">
+        </div>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- PROJECT SETTINGS (Excel: Project sheet modifiers) -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>Project Settings</legend>
+        <p class="hint">These modifiers affect perimeter and cladding install hour calculations.</p>
+        <div class="form-row">
+            <label for="floor_count">Floor Count</label>
+            <input type="number" id="floor_count" name="floor_count" value="1" min="1" style="width:60px">
+            <span class="hint">(>3 adds scaffold modifier)</span>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="hot_work"> Hot Work Required</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="tear_off"> Tear-Off Required</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="interior_access_only"> Interior Access Only</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="winter_conditions"> Winter Conditions</label>
+        </div>
     </fieldset>
 
     <!-- ============================================================ -->
@@ -349,12 +378,79 @@
             <label><input type="checkbox" name="vapour_barrier_tie_in"> Vapour Barrier Tie-In (to existing VB)</label>
         </div>
         <div class="form-row">
+            <label><input type="checkbox" name="second_iso_layer"> Include 2nd ISO Layer</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="third_iso_layer"> Include 3rd ISO Layer</label>
+        </div>
+        <div class="form-row">
+            <label for="fire_board_scope">Fire Prevention Board</label>
+            <select id="fire_board_scope" name="fire_board_scope">
+                <option value="None" selected>None</option>
+                <option value="Wall">Wall Only</option>
+                <option value="Field">Field Only</option>
+                <option value="Both">Wall &amp; Field</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="vapour_barrier_attachment">Vapour Barrier Attachment</label>
+            <select id="vapour_barrier_attachment" name="vapour_barrier_attachment">
+                <option value="Torched" selected>Torched</option>
+                <option value="Mopped">Mopped</option>
+                <option value="Self-Adhered">Self-Adhered</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="vapour_barrier_product">Vapour Barrier Product</label>
+            <select id="vapour_barrier_product" name="vapour_barrier_product">
+                <option value="Sopravapor" selected>Sopravap'r</option>
+                <option value="#15_Felt_x2">#15 Felt x 2</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_asphalt_easymelt"> Include Asphalt EasyMelt (SBS)</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_pmma"> Include PMMA System (Alsan RS)</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="garland_system"> Garland System (Tuff-Stuff/Garla-Flex/Gar-Mesh)</label>
+        </div>
+        <div class="form-row">
             <label for="metal_flashing_type">Metal Flashing Type</label>
             <select id="metal_flashing_type" name="metal_flashing_type">
                 <option value="galvanized">Galvanized w/ Clips</option>
                 <option value="prepainted">Prepainted</option>
                 <option value="cladding">Cladding Panels</option>
             </select>
+        </div>
+        <div class="form-row">
+            <label for="ballast_type">Ballast Gravel Type</label>
+            <select id="ballast_type" name="ballast_type">
+                <option value="BUR" selected>BUR Gravel</option>
+                <option value="EPDM">EPDM Gravel</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="eps_thickness_in">EPS Insulation Thickness (in)</label>
+            <input type="number" id="eps_thickness_in" name="eps_thickness_in" value="2.5" step="0.5" style="width:60px">
+        </div>
+    </fieldset>
+
+    <!-- ============================================================ -->
+    <!-- TPO-SPECIFIC TOGGLES -->
+    <!-- ============================================================ -->
+    <fieldset>
+        <legend>TPO-Specific Options</legend>
+        <p class="hint">Only applies when a TPO system is selected.</p>
+        <div class="form-row">
+            <label><input type="checkbox" name="tpo_second_membrane"> Include 2nd TPO Membrane</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_tpo_flashing_24" checked> TPO Flashing 24&quot; (parapets &gt; 18&quot;)</label>
+        </div>
+        <div class="form-row">
+            <label><input type="checkbox" name="include_tpo_flashing_12"> TPO Flashing 12&quot; (short parapets)</label>
         </div>
     </fieldset>
 

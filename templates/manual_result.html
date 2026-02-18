@@ -5,7 +5,7 @@
 {% block content %}
 {% set meas = estimate.project_measurements %}
 <h1>Roofing Quantity Takeoff &amp; Cost Estimate</h1>
-<p class="subtitle">{{ meas.roof_system_name }} | Spec: {{ meas.spec }} | {{ meas.layer_count }} layers</p>
+<p class="subtitle">{{ meas.roof_system_name }} | Spec: {{ meas.spec }} | {{ meas.layer_count }} layers{% if meas.version %} | {{ meas.version }}{% endif %}</p>
 
 <div class="summary-bar">
     <div class="summary-item">
@@ -28,6 +28,24 @@
     <div class="summary-item">
         <span class="label">Corners</span>
         <span class="value">{{ meas.corner_count }}</span>
+    </div>
+    {% endif %}
+    {% if meas.total_curb_labour_hours > 0 %}
+    <div class="summary-item">
+        <span class="label">Curb Labour</span>
+        <span class="value">{{ meas.total_curb_labour_hours }} hrs</span>
+    </div>
+    {% endif %}
+    {% if meas.total_vent_hours > 0 %}
+    <div class="summary-item">
+        <span class="label">Vent Labour</span>
+        <span class="value">{{ meas.total_vent_hours }} hrs</span>
+    </div>
+    {% endif %}
+    {% if meas.total_perimeter_install_hours > 0 %}
+    <div class="summary-item">
+        <span class="label">Perim Install</span>
+        <span class="value">{{ meas.total_perimeter_install_hours }} hrs</span>
     </div>
     {% endif %}
 </div>
@@ -58,7 +76,7 @@
 <table class="results-table">
     <thead><tr>
         <th>Sec</th><th>Type</th><th>Height</th><th>LF</th>
-        <th>Strip Girth</th><th>Strip sqft</th><th>Metal Girth</th><th>Metal sqft</th><th>Sheets</th><th>Wood Face</th>
+        <th>Strip Girth</th><th>Strip sqft</th><th>Metal Girth</th><th>Metal sqft</th><th>Sheets</th><th>Wood Face</th><th>Install Hrs</th>
     </tr></thead>
     <tbody>
         {% for p in estimate.perimeter_details %}
@@ -73,6 +91,7 @@
             <td>{{ p.metal_sqft | number }}</td>
             <td>{{ p.metal_sheets }}</td>
             <td>{% if p.wood_face_sqft > 0 %}{{ p.wood_face_sqft | number }} sqft{% else %}-{% endif %}</td>
+            <td>{% if p.install_hours > 0 %}{{ p.install_hours }}{% else %}-{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>

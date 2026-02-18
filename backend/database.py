@@ -903,6 +903,51 @@ COMMON_ROOF_MATERIALS = {
         "unit": "can",
         "sample_descriptions": ["Adhesive catalyst"],
     },
+    # --- Fire Prevention Board ---
+    "Fire_Prevention_Board": {
+        "canonical_name": "Fire Prevention Board",
+        "category": "Coverboard",
+        "avg_price": 18.00,
+        "unit": "sheet (20 sqft)",
+        "sample_descriptions": ["Fire prevention board 4x5"],
+    },
+    # --- Asphalt EasyMelt ---
+    "Asphalt_EasyMelt": {
+        "canonical_name": "Asphalt EasyMelt",
+        "category": "Sealants & Adhesives",
+        "avg_price": 85.00,
+        "unit": "pail",
+        "sample_descriptions": ["Asphalt EasyMelt hot-applied adhesive"],
+    },
+    # --- Garland System Products ---
+    "Tuff_Stuff_MS": {
+        "canonical_name": "Tuff-Stuff MS (Garland)",
+        "category": "Sealants & Adhesives",
+        "avg_price": 12.50,
+        "unit": "tube",
+        "sample_descriptions": ["Garland Tuff-Stuff MS sealant"],
+    },
+    "Garla_Flex": {
+        "canonical_name": "Garla-Flex (Garland)",
+        "category": "Sealants & Adhesives",
+        "avg_price": 125.00,
+        "unit": "pail",
+        "sample_descriptions": ["Garland Garla-Flex flashing adhesive"],
+    },
+    "Gar_Mesh": {
+        "canonical_name": "Gar-Mesh (Garland)",
+        "category": "Miscellaneous",
+        "avg_price": 95.00,
+        "unit": "roll",
+        "sample_descriptions": ["Garland Gar-Mesh reinforcement fabric"],
+    },
+    "Flashing_Bond_Mastic_Garland": {
+        "canonical_name": "Flashing Bond Cold Applied Mastic (Garland)",
+        "category": "Sealants & Adhesives",
+        "avg_price": 75.00,
+        "unit": "pail",
+        "sample_descriptions": ["Garland flashing bond cold applied mastic"],
+    },
     # --- Vents & Penetrations additions ---
     "Gum_Box": {
         "canonical_name": "Gum Box / Catchment",
