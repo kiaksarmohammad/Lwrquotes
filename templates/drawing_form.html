@@ -61,8 +61,38 @@
         {% endif %}
     </fieldset>
 
+    <fieldset>
+        <legend>Reference Measurement (Required)</legend>
+        <p style="margin-bottom: 10px;">
+            Provide a known dimension from the drawing so the AI can calibrate its measurements accurately.
+            Pick any dimension you can verify (e.g., a building wall length, a noted distance between gridlines).
+        </p>
+        <div class="form-row">
+            <label for="ref_description">What is this measurement?</label>
+            <input type="text" id="ref_description" name="ref_description" placeholder="e.g. North wall length, Distance between grid A and grid F" required>
+            <small>Describe which element on the drawing this dimension corresponds to</small>
+        </div>
+        <div class="form-row">
+            <label for="ref_value">Known Dimension Value</label>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="number" id="ref_value" name="ref_value" step="any" placeholder="e.g. 120" required style="flex: 1;">
+                <select id="ref_unit" name="ref_unit" style="width: 100px;">
+                    <option value="ft" selected>ft</option>
+                    <option value="in">in</option>
+                    <option value="m">m</option>
+                </select>
+            </div>
+            <small>Enter the real-world value of this dimension as shown or known from site</small>
+        </div>
+        <div class="form-row">
+            <label for="ref_page">Which page shows this measurement?</label>
+            <input type="number" id="ref_page" name="ref_page" min="1" max="{{ page_count }}" placeholder="e.g. 2" value="">
+            <small>Leave blank to use the first plan page</small>
+        </div>
+    </fieldset>
+
     <div class="alert alert-info">
-        We will first scan the plan pages to auto-measure the roof area and perimeter.
+        The reference measurement will be used to calibrate the AI's dimensional analysis of the plan pages.
     </div>
 
     <button type="submit" class="btn btn-primary">Auto-Measure & Continue</button>

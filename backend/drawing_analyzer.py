@@ -120,12 +120,13 @@ def _product_names_list() -> str:
     return "\n".join(names)
 
 
-MEASUREMENT_PROMPT = """You are a roofing quantity surveyor analyzing a roof plan view drawing.
+MEASUREMENT_PROMPT_BASE = """You are a roofing quantity surveyor analyzing a roof plan view drawing.
 
 Your goal is to extract the primary roof measurements from this drawing.
 
-1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100). 
-2. DIMENSIONS: Read the overall dimensions of the building outline. This can be calculated using the scale and a reference measurement that will be guranteed to be included in the document
+1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100).
+2. DIMENSIONS: Read the overall dimensions of the building outline.
+{reference_section}
 3. CALCULATE:
    - Total Roof Area (sqft): The total flat roof surface area.
    - Perimeter (LF): The total length of the roof edge.
@@ -134,14 +135,40 @@ Your goal is to extract the primary roof measurements from this drawing.
 4. CONFIDENCE: Rate your confidence (high/medium/low) based on image clarity and scale visibility.
 
 Return ONLY valid JSON (no markdown, no explanation) in this format:
-{
-  "scale": "1/8\" = 1'-0\"",
+{{
+  "scale": "1/8\\" = 1'-0\\"",
+  "reference_measurement_used": true,
   "total_roof_area_sqft": 0.0,
   "perimeter_lf": 0.0,
   "parapet_length_lf": 0.0,
   "confidence": "high",
   "notes": "Scale found in bottom right. Dimensions clear."
-}"""
+}}"""
+
+REFERENCE_SECTION_WITH_DATA = """
+IMPORTANT - REFERENCE MEASUREMENT (use this to calibrate all other dimensions):
+   The user has confirmed that "{description}" measures {value} {unit} in real life.
+   Use this known dimension to:
+   a) Verify or determine the drawing scale
+   b) Cross-check all other measured dimensions against this reference
+   c) If the scale shown on the drawing conflicts with this reference measurement, TRUST the reference measurement
+   d) Calculate all areas and lengths using the scale validated by this reference"""
+
+REFERENCE_SECTION_NO_DATA = """   Use the scale notation on the drawing along with any visible dimensions to calculate measurements."""
+
+
+def _build_measurement_prompt(reference_measurement: dict | None = None) -> str:
+    """Build the measurement prompt, injecting reference data if provided."""
+    if reference_measurement:
+        ref_section = REFERENCE_SECTION_WITH_DATA.format(
+            description=reference_measurement["description"],
+            value=reference_measurement["value"],
+            unit=reference_measurement["unit"],
+        )
+    else:
+        ref_section = REFERENCE_SECTION_NO_DATA
+
+    return MEASUREMENT_PROMPT_BASE.format(reference_section=ref_section)
 
 
 PARAPET_HEIGHT_PROMPT = """You are a roofing quantity surveyor analyzing a detail/section drawing.
@@ -451,20 +478,31 @@ def analyze_spec(pdf_path: str, spec_pages: list[int],
 
 
 def analyze_measurements(pdf_path: str, plan_pages: list[int],
-                         client: genai.Client, model: str = DEFAULT_MODEL) -> dict:
+                         client: genai.Client, model: str = DEFAULT_MODEL,
+                         reference_measurement: dict | None = None) -> dict:
     """
     Analyze plan pages to extract roof measurements (Area, Perimeter, Parapet Length).
+
+    Args:
+        reference_measurement: Optional dict with keys 'description', 'value', 'unit'
+            providing a known dimension for calibration.
+
     Returns the result from the highest-confidence page.
     """
     logger.info(f"[MEASUREMENTS] Starting analysis of plan pages {plan_pages}...")
+    if reference_measurement:
+        logger.info(f"[MEASUREMENTS] Reference: {reference_measurement}")
     t0 = time.time()
     images = render_pdf_pages(pdf_path, plan_pages)
     logger.info(f"[MEASUREMENTS] Rendered {len(images)} page(s) in {time.time() - t0:.1f}s")
 
+    # Build the prompt, injecting reference measurement if provided
+    prompt = _build_measurement_prompt(reference_measurement)
+
     candidates = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures = [
-            executor.submit(_analyze_single_page, p, i, client, model, MEASUREMENT_PROMPT)
+            executor.submit(_analyze_single_page, p, i, client, model, prompt)
             for p, i in images
         ]
         for future in concurrent.futures.as_completed(futures):

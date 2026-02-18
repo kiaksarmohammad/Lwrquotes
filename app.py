@@ -382,6 +382,10 @@ async def drawing_measure(
     detail_pages: str = Form(""),
     spec_path: str = Form(""),
     spec_pages: str = Form(""),
+    ref_description: str = Form(""),
+    ref_value: float = Form(0.0),
+    ref_unit: str = Form("ft"),
+    ref_page: str = Form(""),
 ):
     import logging
     import time as _time
@@ -397,7 +401,8 @@ async def drawing_measure(
         from backend.drawing_analyzer import (
             analyze_measurements,
             analyze_parapet_height,
-            _parse_page_list
+            _parse_page_list,
+            DEFAULT_MODEL,
         )
         from google import genai
         import asyncio
@@ -412,7 +417,16 @@ async def drawing_measure(
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
 
-        logger.info(f"/drawing/measure called — plan_pages={plan_pg}, detail_pages={detail_pg}")
+        # Build reference measurement dict
+        reference_measurement = None
+        if ref_description.strip() and ref_value > 0:
+            reference_measurement = {
+                "description": ref_description.strip(),
+                "value": ref_value,
+                "unit": ref_unit,
+            }
+
+        logger.info(f"/drawing/measure called — plan_pages={plan_pg}, detail_pages={detail_pg}, ref={reference_measurement}")
         t0 = _time.time()
 
         loop = asyncio.get_running_loop()
@@ -423,7 +437,8 @@ async def drawing_measure(
 
         if plan_pg:
             measurements_task = loop.run_in_executor(
-                None, analyze_measurements, pdf_path, plan_pg, client
+                None, analyze_measurements, pdf_path, plan_pg, client,
+                DEFAULT_MODEL, reference_measurement
             )
 
         if detail_pg:
