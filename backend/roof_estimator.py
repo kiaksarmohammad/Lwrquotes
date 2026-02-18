@@ -55,11 +55,14 @@ COVERAGE_RATES = {
     "Standing_Seam_Metal":             {"lf_per_unit": 1,     "unit": "lin ft"},
     "Drip_Edge":                       {"lf_per_unit": 10,    "unit": "10ft piece"},
     "Wood_Blocking_Lumber":            {"lf_per_unit": 8,     "unit": "8ft piece"},
-    "Plywood_Sheathing":              {"lf_per_unit": 8,     "unit": "4'x8' sheet"},
+    "Plywood_Sheathing":              {"sqft_per_unit": 32,  "lf_per_unit": 8,  "unit": "4'x8' sheet"},
+    "Gravel_Ballast":                  {"sqft_per_unit": 1,   "unit": "sqft"},
+    "Filter_Fabric":                   {"sqft_per_unit": 1,   "unit": "sqft"},
     "Mastic":                          {"sqft_per_unit": 500, "unit": "pail"},
     "Adhesive":                        {"sqft_per_unit": 200, "unit": "pail"},
     "Adhesive_Elastocol":              {"sqft_per_unit": 333, "unit": "pail (19L)"},
     "Sealant_General":                 {"lf_per_unit": 20,    "unit": "tube"},
+    "Sealant_Mulco_Supra":             {"lf_per_unit": 15,    "unit": "tube"},
     "Coating_Paint":                   {"sqft_per_unit": 200, "unit": "pail"},
     "Tape":                            {"lf_per_unit": 150,   "unit": "roll"},
     "Walkway_Pads":                    {"sqft_per_unit": 12,  "unit": "pad"},
@@ -513,7 +516,7 @@ _SYSTEM_CONSUMABLES = {
         # Adhesives - wall vs field split (Excel: FRS R41-R46)
         ("Mastic (Sopramastic)", "Mastic", "pail", 2, "roofing"),
         ("Elastocol Adhesive - Field", "Adhesive_Elastocol", "pail (19L)", 3, "roofing"),
-        ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 6, "flashing"),
+        ("Sealant (Mulco Supra)", "Sealant_Mulco_Supra", "tube", 6, "flashing"),
         # Accessories (Excel: FRS R48-R59) — Firetape moved to conditional calc
         ("Sopralap Cover Strip", "Sopralap_Cover_Strip", "roll", 1, "roofing"),
         ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
@@ -2126,6 +2129,13 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     Instead of hardcoded material lists, uses the detail_analysis from
     drawing_analyzer.py to determine which materials go in each detail,
     then applies measurements to calculate quantities and costs.
+
+    Handles:
+    - Multiple field_assembly details: splits area evenly among them
+      (they are alternative assemblies for different zones, not additive)
+    - expansion_joint: uses 25% of perimeter (typical, not full perimeter)
+    - sleeper_curb measured in linear_ft: multiplies count × 10 LF typical
+    - Pricing key fallback: checks all material dictionaries
     """
     results = {
         "project_measurements": {
@@ -2154,6 +2164,13 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         print("  WARNING: No AI detail analysis found. Use calculate_takeoff() instead.")
         return results
 
+    # --- Prevent double-counting field assemblies ---
+    # Count how many field_assembly details exist; they are alternative
+    # assemblies for different roof zones, so we split the area among them.
+    field_assembly_count = sum(
+        1 for d in all_details if d.get("detail_type") == "field_assembly"
+    )
+
     for detail in all_details:
         dtype = detail.get("detail_type", "unknown")
         dname = detail.get("detail_name", "Unknown Detail")
@@ -2168,12 +2185,29 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         else:
             base_value = 1
 
+        # --- Adjustments to prevent over-counting ---
+        # Field assemblies: split area evenly among alternatives
+        if dtype == "field_assembly" and field_assembly_count > 1:
+            base_value = base_value / field_assembly_count
+
+        # Expansion joints: typically only a portion of perimeter
+        if dtype == "expansion_joint":
+            base_value = base_value * 0.25  # ~25% of perimeter is typical
+
+        # Sleeper curbs: if measured in LF, multiply count × typical 10 LF each
+        if dtype == "sleeper_curb" and mtype == "linear_ft":
+            base_value = base_value * 10  # 10 LF per sleeper curb typical
+
+        # Mechanical curbs: if measured in LF, multiply count × typical 20 LF perimeter each
+        if dtype == "mechanical_curb" and mtype == "linear_ft":
+            base_value = base_value * 20  # ~20 LF perimeter per mechanical unit typical
+
         detail_result = {
             "detail_name": dname,
             "detail_type": dtype,
             "drawing_ref": dref,
             "measurement_type": mtype,
-            "base_measurement": base_value,
+            "base_measurement": round(base_value, 1),
             "layers": [],
             "detail_cost": 0.0,
         }
@@ -2183,7 +2217,9 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             material_name = layer.get("material", "?")
             notes = layer.get("notes", "")
 
-            if pkey == "CUSTOM" or pkey not in PRICING:
+            # Try to find pricing in any material dictionary
+            price = _get_price(pkey)
+            if pkey == "CUSTOM" or price == 0.0:
                 detail_result["layers"].append({
                     "material": material_name,
                     "pricing_key": pkey,
@@ -2196,11 +2232,11 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 })
                 continue
 
-            unit_price = _get_price(pkey)
+            unit_price = price
             coverage = COVERAGE_RATES.get(pkey, {})
             waste = 1.10  # default 10% waste
 
-            if mtype == "sqft" or mtype == "linear_ft" and "sqft_per_unit" in coverage and "lf_per_unit" not in coverage:
+            if mtype == "sqft" or (mtype == "linear_ft" and "sqft_per_unit" in coverage and "lf_per_unit" not in coverage):
                 sqft_per = coverage.get("sqft_per_unit", 1)
                 qty = math.ceil(base_value * waste / sqft_per)
                 unit = coverage.get("unit", "unit")
@@ -2210,7 +2246,7 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 unit = coverage.get("unit", "unit")
             else:  # each
                 per_each = coverage.get("per_each", 1)
-                qty = base_value * per_each
+                qty = max(1, int(base_value * per_each))
                 unit = coverage.get("unit", "EA")
 
             line_cost = qty * unit_price
@@ -2231,13 +2267,28 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         results["details"].append(detail_result)
 
     results["total_material_cost"] = round(grand_total, 2)
+    # Bid summary: materials + labour (1:1 ratio) + overhead (35%) + profit (10%)
+    # Based on Excel Bidmaster formula: COGS = Materials + Labour + Other
+    # Labour ≈ Materials, Overhead = 35% of COGS, Profit = 10% of breakeven
+    labour_cost = round(grand_total * 1.0, 2)      # Labour ~ 1:1 with materials
+    other_costs = round(grand_total * 0.25, 2)      # Other costs ~25% of materials
+    cogs = round(grand_total + labour_cost + other_costs, 2)
+    overhead = round(cogs * 0.35, 2)
+    breakeven = round(cogs + overhead, 2)
+    profit = round(breakeven * 0.10, 2)
+    selling_price = round(breakeven + profit, 2)
+
     results["bid_summary"] = {
         "material_cost": round(grand_total, 2),
-        "general_requirements_10pct": round(grand_total * 0.10, 2),
-        "labour_and_material_1_65x": round(grand_total * 1.65, 2),
-        "total_estimate": round(grand_total * 0.10 + grand_total * 1.65, 2),
+        "labour_cost": labour_cost,
+        "other_costs": other_costs,
+        "total_direct_cost": cogs,
+        "overhead_35pct": overhead,
+        "breakeven": breakeven,
+        "profit_10pct": profit,
+        "total_estimate": selling_price,
         "per_sqft": round(
-            (grand_total * 0.10 + grand_total * 1.65) / m.total_roof_area_sqft, 2
+            selling_price / m.total_roof_area_sqft, 2
         ) if m.total_roof_area_sqft > 0 else 0,
     }
 
@@ -2285,12 +2336,17 @@ def print_detail_estimate(est: dict) -> None:
         print(f"\n{'=' * 72}")
         print("  ESTIMATE SUMMARY")
         print(f"{'=' * 72}")
-        print(f"  Total Material Cost:     ${bid.get('material_cost', 0):>12,.2f}")
-        print(f"  General Req (10%):       ${bid.get('general_requirements_10pct', 0):>12,.2f}")
-        print(f"  Labour + Material (1.65x): ${bid.get('labour_and_material_1_65x', 0):>12,.2f}")
+        print(f"  Total Material Cost:       ${bid.get('material_cost', 0):>12,.2f}")
+        print(f"  Labour Cost:               ${bid.get('labour_cost', 0):>12,.2f}")
+        print(f"  Other Costs:               ${bid.get('other_costs', 0):>12,.2f}")
         print(f"  {'-' * 50}")
-        print(f"  TOTAL PROJECT ESTIMATE:  ${bid.get('total_estimate', 0):>12,.2f}")
-        print(f"  Per sqft:                ${bid.get('per_sqft', 0):>12,.2f}")
+        print(f"  Total Direct Cost (COGS):  ${bid.get('total_direct_cost', 0):>12,.2f}")
+        print(f"  Overhead (35%):            ${bid.get('overhead_35pct', 0):>12,.2f}")
+        print(f"  Breakeven:                 ${bid.get('breakeven', 0):>12,.2f}")
+        print(f"  Net Profit (10%):          ${bid.get('profit_10pct', 0):>12,.2f}")
+        print(f"  {'=' * 50}")
+        print(f"  SELLING PRICE:             ${bid.get('total_estimate', 0):>12,.2f}")
+        print(f"  Per sqft:                  ${bid.get('per_sqft', 0):>12,.2f}")
     print("=" * 72)
 
 

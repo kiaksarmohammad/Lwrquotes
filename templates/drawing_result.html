@@ -136,17 +136,33 @@
                 <td>{{ bid.material_cost | currency }}</td>
             </tr>
             <tr>
-                <td>General Requirements (10%)</td>
-                <td>{{ bid.general_requirements_10pct | currency }}</td>
+                <td>Labour Cost</td>
+                <td>{{ bid.labour_cost | currency }}</td>
             </tr>
             <tr>
-                <td>Labour + Material (1.65x)</td>
-                <td>{{ bid.labour_and_material_1_65x | currency }}</td>
+                <td>Other Costs</td>
+                <td>{{ bid.other_costs | currency }}</td>
+            </tr>
+            <tr>
+                <td>Total Direct Cost (COGS)</td>
+                <td>{{ bid.total_direct_cost | currency }}</td>
+            </tr>
+            <tr>
+                <td>Overhead (35%)</td>
+                <td>{{ bid.overhead_35pct | currency }}</td>
+            </tr>
+            <tr>
+                <td>Breakeven</td>
+                <td>{{ bid.breakeven | currency }}</td>
+            </tr>
+            <tr>
+                <td>Net Profit (10%)</td>
+                <td>{{ bid.profit_10pct | currency }}</td>
             </tr>
         </tbody>
     </table>
     <div class="bid-total">
-        <span class="label">Total Project Estimate</span>
+        <span class="label">Selling Price</span>
         <span class="value">{{ bid.total_estimate | currency }}</span>
     </div>
     <div class="bid-persqft">
