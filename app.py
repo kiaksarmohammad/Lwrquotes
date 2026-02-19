@@ -90,24 +90,24 @@ async def manual_estimate(request: Request):
     form = await request.form()
 
     def fval(key, default=0.0):
-        v = form.get(key, "")
+        v = str(form.get(key, "") or "")
         try:
             return float(v) if v else default
         except (ValueError, TypeError):
             return default
 
     def ival(key, default=0):
-        v = form.get(key, "")
+        v = str(form.get(key, "") or "")
         try:
             return int(float(v)) if v else default
         except (ValueError, TypeError):
             return default
 
     def sval(key, default=""):
-        return form.get(key, default) or default
+        return str(form.get(key, default) or default)
 
     def bval(key):
-        return form.get(key) == "on"
+        return str(form.get(key, "") or "") == "on"
 
     # --- Basic fields ---
     roof_system_type = sval("roof_system_type", "SBS")
@@ -490,6 +490,9 @@ async def drawing_analyze(
     parapet_length_lf: float = Form(0.0),
     parapet_height_ft: float = Form(2.0),
 ):
+    import logging
+    _logger = logging.getLogger("drawing_analyze")
+
     # Path traversal protection
     if not pdf_path.startswith(str(UPLOAD_DIR)):
         raise HTTPException(status_code=400, detail="Invalid file path")
@@ -498,11 +501,13 @@ async def drawing_analyze(
 
     try:
         from backend.drawing_analyzer import analyze_drawing, _parse_page_list
+        from backend.file_extractor import extract_text_from_pdf, analyze_text as spec_analyze_text
         from google import genai
         from backend.roof_estimator import (
             measurements_from_analysis,
             calculate_detail_takeoff,
             calculate_takeoff,
+            join_takeoff_data,
         )
         import asyncio
 
@@ -514,14 +519,39 @@ async def drawing_analyze(
 
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else None
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else None
-        spec_pg = _parse_page_list(spec_pages) if spec_pages.strip() else None
 
-        if not plan_pg and not detail_pg and not spec_pg:
-            raise ValueError("Specify at least one of: plan pages, detail pages, or spec pages")
+        if not plan_pg and not detail_pg:
+            raise ValueError("Specify at least one of: plan pages or detail pages")
 
         loop = asyncio.get_running_loop()
-        
-        # Run analysis in a thread pool to avoid blocking the event loop
+
+        # -------------------------------------------------------------------
+        # Step 1: Process spec PDF through file_extractor.py (deterministic).
+        # This runs FIRST so spec material data is ready before pricing.
+        # -------------------------------------------------------------------
+        spec_result = None
+        if spec_path:
+            _logger.info(f"[SPEC] Extracting spec PDF: {spec_path}")
+            try:
+                spec_pages_data = await loop.run_in_executor(
+                    None, lambda: extract_text_from_pdf(spec_path)
+                )
+                spec_result = await loop.run_in_executor(
+                    None, lambda: spec_analyze_text(spec_pages_data)
+                )
+                _logger.info(
+                    f"[SPEC] Extracted {spec_result['summary']['total_unique_products']} "
+                    f"products, {spec_result['summary']['total_confirmed_pricing_keys']} "
+                    f"pricing keys confirmed."
+                )
+            except Exception as spec_err:
+                _logger.warning(f"[SPEC] Spec PDF extraction failed: {spec_err}")
+                spec_result = None
+
+        # -------------------------------------------------------------------
+        # Step 2: Send drawing PDF to Gemini API for spatial analysis.
+        # -------------------------------------------------------------------
+        _logger.info(f"[DRAWING] Sending drawing to Gemini: plan={plan_pg}, detail={detail_pg}")
         analysis = await loop.run_in_executor(
             None,
             lambda: analyze_drawing(
@@ -529,11 +559,12 @@ async def drawing_analyze(
                 client=client,
                 plan_pages=plan_pg,
                 detail_pages=detail_pg,
-                spec_pdf=spec_path if spec_path else None,
-                spec_pages=spec_pg,
             )
         )
 
+        # -------------------------------------------------------------------
+        # Step 3: Build measurements from AI counts + user-provided areas.
+        # -------------------------------------------------------------------
         measurements = measurements_from_analysis(
             analysis,
             total_roof_area,
@@ -542,21 +573,46 @@ async def drawing_analyze(
             parapet_height_ft,
         )
 
+        # -------------------------------------------------------------------
+        # Step 4: Pricing.
+        # If spec data is available, use join_takeoff_data() (spec-driven,
+        # deterministic) as the primary estimate.
+        # Always also compute the AI detail takeoff + standard estimate.
+        # -------------------------------------------------------------------
+        joined_estimate = None
+        if spec_result and spec_result.get("spec_materials"):
+            try:
+                joined_estimate = join_takeoff_data(analysis, spec_result)
+                _logger.info(
+                    f"[PRICING] join_takeoff_data: "
+                    f"{joined_estimate['bid_summary']['total_line_items']} line items, "
+                    f"{joined_estimate['bid_summary']['total_failures']} failures, "
+                    f"total=${joined_estimate['bid_summary']['total_material_cost']:,.2f}"
+                )
+            except Exception as join_err:
+                _logger.warning(f"[PRICING] join_takeoff_data failed: {join_err}")
+                joined_estimate = None
+
         detail_estimate = calculate_detail_takeoff(measurements, analysis)
         standard_estimate = calculate_takeoff(measurements)
 
         return templates.TemplateResponse("drawing_result.html", {
             "request": request,
             "analysis": analysis,
+            "spec_result": spec_result,
+            "joined_estimate": joined_estimate,
             "detail_estimate": detail_estimate,
             "standard_estimate": standard_estimate,
             "error": None,
         })
 
     except Exception as e:
+        _logger.error(f"/drawing/analyze FAILED: {type(e).__name__}: {e}", exc_info=True)
         return templates.TemplateResponse("drawing_result.html", {
             "request": request,
             "analysis": None,
+            "spec_result": None,
+            "joined_estimate": None,
             "detail_estimate": None,
             "standard_estimate": None,
             "error": str(e),

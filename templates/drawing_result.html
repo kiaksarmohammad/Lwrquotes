@@ -54,17 +54,154 @@
 {% endif %}
 {% endfor %}
 
-{% for spec in analysis.spec_analysis %}
-{% if not spec.parse_error %}
+{% endif %}
+
+<!-- Spec PDF Extraction Results (file_extractor.py) -->
+{% if spec_result %}
+<h2>Specification PDF Analysis <small style="font-size:0.6em; font-weight:normal; color:#6c757d;">(Deterministic Regex Engine)</small></h2>
+
+{% set proj = spec_result.project_info %}
+{% set summary = spec_result.summary %}
 <div class="detail-card">
-    <h3>Spec: {{ spec.spec_section | default("?") }} - {{ spec.section_title | default("?") }} (page {{ spec.source_page }})</h3>
-    {% for mat in spec.materials | default([]) %}
-    <p>{{ mat.material_name }}{% if mat.brand_model %} ({{ mat.brand_model }}){% endif %} &rarr; {{ mat.pricing_key }}</p>
+    <p>
+        <strong>{{ summary.total_unique_products }}</strong> unique products found across
+        <strong>{{ summary.total_categories }}</strong> categories &mdash;
+        <strong>{{ summary.total_confirmed_pricing_keys }}</strong> mapped to pricing keys.
+    </p>
+    {% if proj.project_name %}<p><strong>Project:</strong> {{ proj.project_name }}</p>{% endif %}
+    {% if proj.address %}<p><strong>Address:</strong> {{ proj.address }}</p>{% endif %}
+
+    {% for category, prods in spec_result.products.items() %}
+    <details style="margin-top:0.5rem;">
+        <summary style="cursor:pointer; font-weight:600;">{{ category }} ({{ prods | length }})</summary>
+        <ul style="margin:0.4rem 0 0.4rem 1.2rem;">
+        {% for pname, info in prods.items() %}
+            <li>
+                <strong>{{ pname }}</strong>
+                {% if info.dimensions %}
+                <em style="color:#888;">({{ info.dimensions | join(", ") }})</em>
+                {% endif %}
+                {% if info.pricing_key %}
+                &rarr; <code>{{ info.pricing_key }}</code>
+                {% else %}
+                &rarr; <span style="color:#c0392b;">no pricing key</span>
+                {% endif %}
+                <small style="color:#999;">pg {{ info.pages | join(", ") }} &bull; {{ info.mention_count }}x</small>
+            </li>
+        {% endfor %}
+        </ul>
+    </details>
     {% endfor %}
 </div>
 {% endif %}
-{% endfor %}
+
+<!-- ================================================================ -->
+<!-- Spec-Driven Pricing (join_takeoff_data: spatial + spec combined)  -->
+<!-- ================================================================ -->
+{% if joined_estimate %}
+<h2>Spec-Driven Pricing Estimate
+    <small style="font-size:0.6em; font-weight:normal; color:#6c757d;">
+        (Drawing spatial data &plus; Specification materials &mdash; deterministic)
+    </small>
+</h2>
+
+{% set jbid = joined_estimate.bid_summary %}
+<div class="summary-bar">
+    <div class="summary-item">
+        <span class="label">Line Items Resolved</span>
+        <span class="value">{{ jbid.total_line_items }}</span>
+    </div>
+    <div class="summary-item">
+        <span class="label">Resolution Failures</span>
+        {% if jbid.total_failures > 0 %}
+        <span class="value" style="color:#c0392b;">{{ jbid.total_failures }}</span>
+        {% else %}
+        <span class="value">{{ jbid.total_failures }}</span>
+        {% endif %}
+    </div>
+    <div class="summary-item">
+        <span class="label">Total Material Cost</span>
+        <span class="value">{{ jbid.total_material_cost | currency }}</span>
+    </div>
+</div>
+
+{% if joined_estimate.resolved_line_items %}
+<div class="detail-card">
+    <h3>Resolved Line Items</h3>
+    <table class="results-table">
+        <thead>
+            <tr>
+                <th>Detail</th>
+                <th>Type</th>
+                <th>Confirmed Material</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Line Cost</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in joined_estimate.resolved_line_items %}
+            <tr>
+                <td>
+                    {{ item.detail_name }}
+                    <br><small style="color:#888;">{{ item.drawing_ref }}</small>
+                </td>
+                <td><span class="tag">{{ item.detail_type }}</span></td>
+                <td>
+                    {{ item.material_name }}
+                    <br><small><code>{{ item.pricing_key }}</code></small>
+                    {% if item.spec_pages %}
+                    <br><small style="color:#888;">spec pg {{ item.spec_pages | join(", ") }}</small>
+                    {% endif %}
+                </td>
+                <td>{{ item.quantity }} {{ item.unit }}</td>
+                <td>{{ item.unit_price | currency }}</td>
+                <td>{{ item.line_cost | currency }}</td>
+                <td><span class="tag tag-small">{{ item.quantity_source[:3] | upper }}</span></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="5" style="text-align:right; font-weight:600;">Total Material Cost</td>
+                <td colspan="2" style="font-weight:600;">{{ jbid.total_material_cost | currency }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
 {% endif %}
+
+{% if joined_estimate.material_failures %}
+<div class="detail-card" style="border-left: 4px solid #e74c3c;">
+    <h3 style="color:#c0392b;">&#9888; Material Resolution Failures ({{ jbid.total_failures }})</h3>
+    <p style="color:#555; font-size:0.9em;">
+        These drawing details could not be matched to a confirmed material in the Specification PDF.
+        Either the spec PDF does not cover these items, or additional regex patterns are needed in
+        <code>database.PRODUCT_KEYWORDS</code>.
+    </p>
+    <ul>
+    {% for failure in joined_estimate.material_failures %}
+        <li style="margin-bottom:0.6rem;">
+            <strong>{{ failure.detail_name }}</strong>
+            <span class="tag">{{ failure.detail_type }}</span>
+            <span style="color:#888; font-size:0.85em;">(ref: {{ failure.drawing_ref }})</span>
+            <br>
+            <small style="color:#888;">
+                Expected one of:
+                {% for k in failure.expected_pricing_keys %}
+                <code>{{ k }}</code>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+                &mdash; none confirmed in spec.
+            </small>
+        </li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% endif %}
+<!-- /Spec-Driven Pricing -->
 
 <!-- Detail-Based Takeoff -->
 {% if detail_estimate and detail_estimate.details %}

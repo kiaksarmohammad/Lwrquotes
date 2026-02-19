@@ -14,7 +14,10 @@ Usage:
 import math
 import json
 import sys
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 from backend.database import (
     PRICING,
@@ -2305,7 +2308,14 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             material_name = layer.get("material", "?")
             notes = layer.get("notes", "")
 
-            # Try to find pricing in any material dictionary
+            # Safely parse the AI-extracted cross-sectional dimension
+            raw_dim = layer.get("dimension_in")
+            try:
+                dimension_in = float(raw_dim) if raw_dim is not None else 0.0
+            except (ValueError, TypeError):
+                dimension_in = 0.0
+
+            # Price resolution logic
             price = _get_price(pkey)
             if pkey == "CUSTOM" or price == 0.0:
                 detail_result["layers"].append({
@@ -2322,19 +2332,47 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
 
             unit_price = price
             coverage = COVERAGE_RATES.get(pkey, {})
-            waste = 1.10  # default 10% waste
+            waste = 1.10  # 10% standard waste factor
 
-            # Default sqft_per_unit to 32 (4'x8' sheet) instead of 1 to avoid
-            # catastrophic overcount when a pricing key is missing from COVERAGE_RATES
-            if mtype == "sqft" or (mtype == "linear_ft" and "sqft_per_unit" in coverage and "lf_per_unit" not in coverage):
+            # True-area calculation for linear details
+            if mtype == "linear_ft":
+                if dimension_in > 0:
+                    # Transform 1D linear run into 2D area required for the specific material layer
+                    girth_ft = dimension_in / 12.0
+                    actual_sqft = base_value * girth_ft
+
+                    if "sqft_per_unit" in coverage:
+                        sqft_per = coverage.get("sqft_per_unit", 32)
+                        qty = math.ceil(actual_sqft * waste / sqft_per)
+                        unit = coverage.get("unit", "unit")
+                    elif "lf_per_unit" in coverage:
+                        # Handle strictly linear products (e.g., metal cap flashing)
+                        lf_per = coverage.get("lf_per_unit", 1)
+                        qty = math.ceil(base_value * waste / lf_per)
+                        unit = coverage.get("unit", "unit")
+                    else:
+                        qty = max(1, int(base_value * waste))
+                        unit = coverage.get("unit", "EA")
+                else:
+                    # Fallback heuristic if the vision model failed to extract a dimension
+                    if "sqft_per_unit" in coverage and "lf_per_unit" not in coverage:
+                        sqft_per = coverage.get("sqft_per_unit", 32)
+                        qty = math.ceil(base_value * waste / sqft_per)
+                        unit = coverage.get("unit", "unit")
+                    elif "lf_per_unit" in coverage:
+                        lf_per = coverage.get("lf_per_unit", 1)
+                        qty = math.ceil(base_value * waste / lf_per)
+                        unit = coverage.get("unit", "unit")
+                    else:
+                        qty = max(1, int(base_value))
+                        unit = coverage.get("unit", "EA")
+
+            elif mtype == "sqft":
                 sqft_per = coverage.get("sqft_per_unit", 32)
                 qty = math.ceil(base_value * waste / sqft_per)
                 unit = coverage.get("unit", "unit")
-            elif mtype == "linear_ft" and "lf_per_unit" in coverage:
-                lf_per = coverage.get("lf_per_unit", 1)
-                qty = math.ceil(base_value * waste / lf_per)
-                unit = coverage.get("unit", "unit")
-            else:  # each
+
+            else:  # Discrete item logic (each)
                 per_each = coverage.get("per_each", 1)
                 qty = max(1, int(base_value * per_each))
                 unit = coverage.get("unit", "EA")
@@ -2396,6 +2434,401 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     }
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Integration Engine — join_takeoff_data()
+# ---------------------------------------------------------------------------
+# Merges two independent data streams:
+#   spatial_json  — output of drawing_analyzer.py  (Vision LLM, spatial data)
+#   spec_json     — output of file_extractor.py    (deterministic regex)
+#
+# The join is strictly deterministic:
+#   • Quantities come exclusively from spatial_json (LLM extracted dims/counts)
+#   • Material identities come exclusively from spec_json["spec_materials"]
+#   • Any spatial detail that cannot be matched to a confirmed spec material
+#     is flagged as a "Material Resolution Failure" at WARNING level.
+# ---------------------------------------------------------------------------
+
+# Maps drawing detail_type → the spec_json pricing_key(s) that satisfy it.
+# A detail_type may accept multiple pricing_keys (ordered by preference).
+# The first key found in spec_materials wins.
+_DETAIL_TYPE_TO_SPEC_KEYS: dict[str, list[str]] = {
+    "field_assembly": [
+        "Polyisocyanurate_ISO_Insulation",
+        "Tapered_ISO",
+        "TPO_Membrane",
+        "EPDM_Membrane",
+        "SBS_Membrane",
+        "Cap_Membrane",
+        "Base_Membrane",
+        "TPO_60mil_Mechanically_Attached",
+        "SBS_2Ply_Modified_Bitumen",
+        "EPDM_60mil_Fully_Adhered",
+    ],
+    "parapet": [
+        "Flashing_General",
+        "Metal_Flashing_Galvanized",
+        "Metal_Flashing_Prepainted",
+        "Cap_Membrane",
+        "Base_Membrane",
+    ],
+    "curtain_wall": [
+        "Flashing_General",
+        "Metal_Flashing_Galvanized",
+        "Metal_Flashing_Prepainted",
+    ],
+    "drain": [
+        "Roof_Drain",
+    ],
+    "mechanical_curb": [
+        "Flashing_General",
+        "Metal_Flashing_Galvanized",
+    ],
+    "sleeper_curb": [
+        "Wood_Blocking_Lumber",
+        "Plywood_Sheathing",
+    ],
+    "penetration_gas": [
+        "Pipe_Boot_Seal",
+        "EPDM_Pipe_Flashing",
+        "TPO_Pipe_Boot",
+        "Gooseneck_Vent",
+    ],
+    "penetration_electrical": [
+        "Pipe_Boot_Seal",
+        "EPDM_Pipe_Flashing",
+        "TPO_Pipe_Boot",
+    ],
+    "penetration_plumbing": [
+        "Plumbing_Vent",
+        "Pipe_Boot_Seal",
+        "EPDM_Pipe_Flashing",
+        "TPO_Pipe_Boot",
+    ],
+    "vent_hood": [
+        "Gooseneck_Vent",
+        "Vent_Cap",
+    ],
+    "scupper": [
+        "Scupper",
+    ],
+    "expansion_joint": [
+        "Flashing_General",
+        "EPDM_Accessory",
+        "TPO_Accessory",
+    ],
+    "pipe_support": [
+        "Wood_Blocking_Lumber",
+        "Clips",
+    ],
+    "opening_cover": [
+        "Plywood_Sheathing",
+        "Flashing_General",
+    ],
+}
+
+
+def join_takeoff_data(
+    spatial_json: dict,
+    spec_json: dict,
+) -> dict:
+    """
+    Deterministically merge spatial drawing data with spec material data.
+
+    Parameters
+    ----------
+    spatial_json : dict
+        Output of ``drawing_analyzer.py::analyze_drawing()``.
+        Must contain ``plan_analysis`` and/or ``detail_analysis`` keys.
+
+    spec_json : dict
+        Output of ``file_extractor.py::analyze_text()``.
+        Must contain a ``spec_materials`` key — a flat dict keyed by
+        canonical PRICING keys (e.g. ``"Tapered_ISO"``, ``"Roof_Drain"``).
+
+    Returns
+    -------
+    dict with the following structure::
+
+        {
+          "resolved_line_items": [
+            {
+              "detail_name": str,
+              "detail_type": str,
+              "pricing_key": str,
+              "material_name": str,
+              "quantity": float,
+              "unit": str,
+              "unit_price": float,
+              "line_cost": float,
+              "quantity_source": str,  # "plan_view" | "detail_drawing" | "fallback"
+              "spec_pages": [int, ...]  # pages in spec doc where material confirmed
+            }
+          ],
+          "material_failures": [
+            {
+              "detail_name": str,
+              "detail_type": str,
+              "expected_pricing_keys": [str, ...],
+              "message": str
+            }
+          ],
+          "bid_summary": {
+            "total_material_cost": float,
+            "total_line_items": int,
+            "total_failures": int
+          }
+        }
+
+    Raises
+    ------
+    ValueError
+        If ``spec_json`` is missing the ``spec_materials`` key (wrong format).
+    """
+    if "spec_materials" not in spec_json:
+        raise ValueError(
+            "spec_json is missing the 'spec_materials' key. "
+            "Ensure it was produced by file_extractor.py::analyze_text()."
+        )
+
+    confirmed_spec: dict[str, dict] = spec_json["spec_materials"]  # pricing_key → info
+    resolved_line_items: list[dict] = []
+    material_failures: list[dict] = []
+    grand_total: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Build plan-view detail_quantities lookup (same logic as calculate_detail_takeoff)
+    # ------------------------------------------------------------------
+    plan_detail_qtys: dict[str, dict] = {}
+    for plan in spatial_json.get("plan_analysis", []):
+        if plan.get("parse_error"):
+            continue
+        for ref_key, qty_info in plan.get("detail_quantities", {}).items():
+            if isinstance(qty_info, dict) and qty_info.get("measurement", 0) > 0:
+                plan_detail_qtys[ref_key] = qty_info
+
+    # Aggregate simple item counts from all plan pages
+    item_counts: dict[str, int] = {}
+    for plan in spatial_json.get("plan_analysis", []):
+        if plan.get("parse_error"):
+            continue
+        for k, v in plan.get("counts", {}).items():
+            item_counts[k] = item_counts.get(k, 0) + v
+
+    # ------------------------------------------------------------------
+    # Iterate over all AI-identified details
+    # ------------------------------------------------------------------
+    all_details: list[dict] = []
+    for page_data in spatial_json.get("detail_analysis", []):
+        if page_data.get("parse_error"):
+            continue
+        drawing_ref = page_data.get("drawing_ref", "?")
+        for detail in page_data.get("details", []):
+            detail["_drawing_ref"] = drawing_ref
+            all_details.append(detail)
+
+    if not all_details:
+        logger.warning(
+            "[join_takeoff_data] No detail_analysis entries in spatial_json. "
+            "Proceeding with plan-view counts only."
+        )
+
+    field_assembly_count = sum(
+        1 for d in all_details if d.get("detail_type") == "field_assembly"
+    )
+
+    for detail in all_details:
+        dtype: str = detail.get("detail_type", "unknown")
+        dname: str = detail.get("detail_name", "Unknown Detail")
+        dref: str = detail.get("_drawing_ref", "?")
+
+        # ------------------------------------------------------------------
+        # Resolve quantity (mirrors priority order in calculate_detail_takeoff)
+        # ------------------------------------------------------------------
+        quantity_source: str = "fallback"
+        base_value: float = 1.0
+        mtype: str = detail.get("measurement_type", "each")
+
+        # Priority 1: plan_detail_quantities
+        detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
+        plan_qty: dict | None = None
+        for ref_key, qty_info in plan_detail_qtys.items():
+            if (detail_num.lower() in ref_key.lower()
+                    or ref_key.lower() in f"{detail_num}/{dref}".lower()):
+                plan_qty = qty_info
+                break
+
+        if plan_qty and plan_qty.get("measurement", 0) > 0:
+            base_value = float(plan_qty["measurement"])
+            mtype = plan_qty.get("unit", mtype)
+            quantity_source = "plan_view"
+
+        # Priority 2: AI scope_quantity from detail drawing
+        elif (detail.get("scope_quantity") is not None
+              and detail["scope_quantity"] > 0):
+            base_value = float(detail["scope_quantity"])
+            mtype = detail.get("scope_unit", mtype)
+            quantity_source = "detail_drawing"
+
+        # Priority 3: DETAIL_TYPE_MAP fallback
+        else:
+            type_info = DETAIL_TYPE_MAP.get(dtype)
+            if type_info:
+                map_mtype, _ = type_info
+                mtype = map_mtype
+            base_value = 1.0  # conservative — no spatial data available
+            quantity_source = "fallback"
+
+        if dtype == "field_assembly" and field_assembly_count > 1:
+            base_value = base_value / field_assembly_count
+
+        # ------------------------------------------------------------------
+        # Resolve material from spec_json  (DETERMINISTIC — no LLM)
+        # ------------------------------------------------------------------
+        candidate_keys: list[str] = _DETAIL_TYPE_TO_SPEC_KEYS.get(dtype, [])
+
+        # Also include any pricing_keys suggested by the AI detail layers
+        for layer in detail.get("layers", []):
+            pk = layer.get("pricing_key", "")
+            if pk and pk not in candidate_keys:
+                candidate_keys = [pk] + candidate_keys  # AI suggestion takes priority
+
+        matched_key: str | None = None
+        for candidate in candidate_keys:
+            if candidate in confirmed_spec:
+                matched_key = candidate
+                break
+
+        if matched_key is None:
+            # ---- Material Resolution Failure ----
+            failure_msg = (
+                f"Material Resolution Failure: Detail '{dname}' (type={dtype}, "
+                f"ref={dref}) requires one of {candidate_keys} but none were "
+                f"confirmed in the Specification document (spec_materials is empty "
+                f"or does not contain a matching key). "
+                f"Verify Specification PDF coverage or add missing regex patterns "
+                f"to database.PRODUCT_KEYWORDS."
+            )
+            logger.warning(failure_msg)
+            material_failures.append({
+                "detail_name": dname,
+                "detail_type": dtype,
+                "drawing_ref": dref,
+                "expected_pricing_keys": list(candidate_keys),
+                "message": failure_msg,
+            })
+            continue  # skip — cannot price without confirmed material
+
+        # ------------------------------------------------------------------
+        # Calculate quantity and cost (deterministic)
+        # ------------------------------------------------------------------
+        spec_info: dict = confirmed_spec[matched_key]
+        unit_price: float = _get_price(matched_key)
+        coverage: dict = COVERAGE_RATES.get(matched_key, {})
+        waste: float = 1.10
+
+        if mtype == "sqft":
+            sqft_per = float(coverage.get("sqft_per_unit", 32))
+            quantity = math.ceil(base_value * waste / sqft_per)
+            unit = coverage.get("unit", "unit")
+        elif mtype == "linear_ft":
+            if "lf_per_unit" in coverage:
+                lf_per = float(coverage["lf_per_unit"])
+                quantity = math.ceil(base_value * waste / lf_per)
+                unit = coverage.get("unit", "unit")
+            else:
+                # Treat as sqft fallback
+                sqft_per = float(coverage.get("sqft_per_unit", 32))
+                quantity = math.ceil(base_value * waste / sqft_per)
+                unit = coverage.get("unit", "unit")
+        else:  # each
+            per_each = coverage.get("per_each", 1)
+            quantity = max(1, int(base_value * per_each))
+            unit = coverage.get("unit", "EA")
+
+        line_cost: float = quantity * unit_price
+        grand_total += line_cost
+
+        resolved_line_items.append({
+            "detail_name": dname,
+            "detail_type": dtype,
+            "drawing_ref": dref,
+            "pricing_key": matched_key,
+            "material_name": spec_info["product_name"],
+            "quantity": quantity,
+            "unit": unit,
+            "unit_price": round(unit_price, 2),
+            "line_cost": round(line_cost, 2),
+            "quantity_source": quantity_source,
+            "spec_pages": spec_info.get("pages", []),
+        })
+
+    # ------------------------------------------------------------------
+    # Log summary
+    # ------------------------------------------------------------------
+    logger.info(
+        "[join_takeoff_data] Resolved %d line items | %d Material Resolution Failures | "
+        "Total material cost: $%,.2f",
+        len(resolved_line_items),
+        len(material_failures),
+        grand_total,
+    )
+    if material_failures:
+        logger.warning(
+            "[join_takeoff_data] %d detail(s) could not be resolved to a confirmed "
+            "spec material. Review 'material_failures' in the return value.",
+            len(material_failures),
+        )
+
+    return {
+        "resolved_line_items": resolved_line_items,
+        "material_failures": material_failures,
+        "bid_summary": {
+            "total_material_cost": round(grand_total, 2),
+            "total_line_items": len(resolved_line_items),
+            "total_failures": len(material_failures),
+        },
+    }
+
+
+def print_join_result(join_result: dict) -> None:
+    """Pretty-print the output of join_takeoff_data()."""
+    bid = join_result["bid_summary"]
+    items = join_result["resolved_line_items"]
+    failures = join_result["material_failures"]
+
+    print("\n" + "=" * 72)
+    print("  INTEGRATED TAKEOFF  (Spatial + Spec — Deterministic Join)")
+    print("=" * 72)
+
+    if items:
+        print(f"\n  {'Detail':<40} {'Material':<30} {'Qty':>6} {'Unit':<14} {'Cost':>12}")
+        print(f"  {'-' * 68}")
+        for item in items:
+            src_tag = f"[{item['quantity_source'][:3].upper()}]"
+            print(
+                f"  {item['detail_name'][:39]:<40} "
+                f"{item['material_name'][:29]:<30} "
+                f"{item['quantity']:>6} "
+                f"{item['unit'][:13]:<14} "
+                f"${item['line_cost']:>10,.2f}  {src_tag}"
+            )
+
+    if failures:
+        print(f"\n  {'─' * 68}")
+        print(f"  MATERIAL RESOLUTION FAILURES  ({len(failures)} total)")
+        print(f"  {'─' * 68}")
+        for f in failures:
+            print(f"  !! {f['detail_name']}  [{f['detail_type']}]")
+            print(f"     Expected one of: {f['expected_pricing_keys']}")
+            print(f"     → Not confirmed in Specification document.")
+
+    print(f"\n  {'─' * 68}")
+    print(f"  Resolved line items : {bid['total_line_items']}")
+    print(f"  Resolution failures : {bid['total_failures']}")
+    print(f"  Total material cost : ${bid['total_material_cost']:>12,.2f}")
+    print("=" * 72)
 
 
 def print_detail_estimate(est: dict) -> None:

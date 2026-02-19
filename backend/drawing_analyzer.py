@@ -1,5 +1,5 @@
 """
-Drawing Analyzer - Uses Gemini Vision to extract detail assemblies from
+Drawing Analyzer - Uses Gemini Vision to extract spatial data from
 architectural roofing drawings.
 
 Sends PDF drawing pages as images to Google Gemini API to identify:
@@ -8,10 +8,13 @@ Sends PDF drawing pages as images to Google Gemini API to identify:
 
 Output JSON feeds into roof_estimator.py for quantity takeoff calculations.
 
+NOTE: Specification PDF analysis has been removed from this module.
+      Use file_extractor.py (deterministic regex engine) for all
+      Specification PDF processing.
+
 Usage:
     python drawing_analyzer.py <drawing.pdf> --plan-pages 2,3 --detail-pages 4,5,6
     python drawing_analyzer.py <drawing.pdf> --all-pages
-    python drawing_analyzer.py <drawing.pdf> --spec-pdf <spec.pdf> --spec-pages 40,41,42
 
 Environment:
     GEMINI_API_KEY  -  Your Google Gemini API key (or use --api-key)
@@ -206,6 +209,7 @@ For EACH detail or section shown on this drawing page, identify:
    - For linear details: note the length if dimensioned
    - For penetrations/curbs: note the size (e.g., "6 inch pipe", "48x48 curb")
    If no quantity can be determined from the drawing, set scope_quantity to null.
+7. MATERIAL DIMENSIONS: For each material in a detail, estimate its cross-sectional width, height, or girth (in inches) if it is shown or can be visually estimated from the scale. For example, a parapet plywood face might be 24 inches tall, or a flashing strip might have an 18-inch girth. If unmeasurable, return null.
 
 IMPORTANT classification rules:
 - "field_assembly" is ONLY for the main roof membrane system that covers the entire roof surface
@@ -235,6 +239,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
           "position": 1,
           "material": "exact material name from drawing",
           "pricing_key": "closest match from our database",
+          "dimension_in": 24.0,
           "notes": "thickness, size, or spec info visible"
         }}
       ]
@@ -305,34 +310,6 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
   "detail_references": ["list all detail callouts visible on the plan"]
 }}"""
 
-
-SPEC_PROMPT = """You are a roofing quantity-takeoff specialist analyzing a specification document page.
-
-Extract all material and product requirements from this specification page.
-For each material mentioned, identify:
-1. The product/material name and any brand/model specified
-2. The applicable standard (ASTM, CSA, etc.)
-3. Which detail or assembly it belongs to
-4. Map it to the closest pricing_key from our database
-
-Our pricing database keys:
-{pricing_keys}
-
-Return ONLY valid JSON (no markdown, no explanation) in this format:
-{{
-  "spec_section": "section number (e.g., 07 52 01)",
-  "section_title": "section title",
-  "materials": [
-    {{
-      "material_name": "full product name",
-      "brand_model": "brand and model if specified (or null)",
-      "standard": "ASTM/CSA reference if mentioned (or null)",
-      "pricing_key": "closest match from our database",
-      "usage": "where/how this material is used",
-      "notes": "any quantity, thickness, or other specs"
-    }}
-  ]
-}}"""
 
 
 # ---------------------------------------------------------------------------
@@ -451,55 +428,6 @@ def analyze_plan(pdf_path: str, plan_pages: list[int],
 
     return sorted(results, key=lambda x: x.get("source_page", 0))
 
-
-def analyze_spec(pdf_path: str, spec_pages: list[int],
-                 client: genai.Client, model: str = DEFAULT_MODEL) -> list[dict]:
-    """Analyze specification pages to extract material requirements."""
-    
-    # Filter pages for sections 00, 01, 07
-    print(f"Scanning {len(spec_pages)} spec pages for relevant sections (00, 01, 07)...")
-    doc = pdfium.PdfDocument(pdf_path)
-    valid_pages = []
-    
-    for p_num in spec_pages:
-        # p_num is 1-based
-        if p_num < 1 or p_num > len(doc):
-            sys.stderr.write(f"Error: Page {p_num} out of range\n")
-            continue
-            
-        try:
-            page = doc[p_num - 1]
-            text = page.get_textpage().get_text_range()
-            
-            # Check for 00, 01, 07 sections
-            # Matches: "Section 07", "07 52 00", "075200"
-            if re.search(r'\b(00|01|07)[\s-]?\d{2}[\s-]?\d{2}\b', text) or \
-               re.search(r'Section\s+(00|01|07)', text, re.IGNORECASE):
-                valid_pages.append(p_num)
-            else:
-                print(f"  Skipping page {p_num} (not section 00, 01, or 07)")
-        except Exception as e:
-            sys.stderr.write(f"Error reading text from page {p_num}: {e}\n")
-            
-    doc.close()
-    
-    if not valid_pages:
-        print("No relevant spec pages found.")
-        return []
-
-    images = render_pdf_pages(pdf_path, valid_pages)
-    prompt = SPEC_PROMPT.format(pricing_keys=_pricing_keys_list())
-
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
-        futures = [
-            executor.submit(_analyze_single_page, p, i, client, model, prompt)
-            for p, i in images
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
-
-    return sorted(results, key=lambda x: x.get("source_page", 0))
 
 
 def analyze_measurements(pdf_path: str, plan_pages: list[int],
@@ -662,37 +590,38 @@ def suggest_page_ranges(pdf_path: str) -> dict:
 def analyze_drawing(pdf_path: str, client: genai.Client,
                     model: str = DEFAULT_MODEL,
                     plan_pages: list[int] | None = None,
-                    detail_pages: list[int] | None = None,
-                    spec_pdf: str | None = None,
-                    spec_pages: list[int] | None = None) -> dict:
+                    detail_pages: list[int] | None = None) -> dict:
     """
-    Full analysis of drawing + spec PDFs.
+    Full spatial analysis of architectural drawing PDFs.
 
-    Returns combined analysis dict with plan_analysis, detail_analysis,
-    and optionally spec_analysis.
+    Processes plan views (for item counts / zones) and detail/section views
+    (for material layer assemblies).  Specification PDF processing has been
+    moved to the deterministic file_extractor.py module.
+
+    Returns:
+        dict with keys:
+          drawing_pdf  – source PDF path
+          model_used   – Gemini model name
+          plan_analysis   – list of per-page plan results
+          detail_analysis – list of per-page detail results
     """
-    result = {
+    result: dict = {
         "drawing_pdf": pdf_path,
         "model_used": model,
         "plan_analysis": [],
         "detail_analysis": [],
-        "spec_analysis": [],
     }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
-        futures = {}
+        futures: dict = {}
         if plan_pages:
             print(f"\n[PLAN VIEWS] Analyzing pages {plan_pages}...")
             futures[executor.submit(analyze_plan, pdf_path, plan_pages, client, model)] = "plan_analysis"
-        
+
         if detail_pages:
             print(f"\n[DETAIL VIEWS] Analyzing pages {detail_pages}...")
             futures[executor.submit(analyze_details, pdf_path, detail_pages, client, model)] = "detail_analysis"
-            
-        if spec_pdf and spec_pages:
-            print(f"\n[SPECIFICATIONS] Analyzing pages {spec_pages} from {spec_pdf}...")
-            futures[executor.submit(analyze_spec, spec_pdf, spec_pages, client, model)] = "spec_analysis"
-            
+
         for future in concurrent.futures.as_completed(futures):
             key = futures[future]
             try:
@@ -752,16 +681,6 @@ def print_summary(analysis: dict) -> None:
                 notes = f"  ({layer['notes']})" if layer.get("notes") else ""
                 print(f"      {layer['position']}. {layer['material']}  ->  {pkey}{notes}")
 
-    # Spec analysis
-    for spec in analysis.get("spec_analysis", []):
-        if spec.get("parse_error"):
-            print(f"\n  Spec page {spec['source_page']}: PARSE ERROR")
-            continue
-        print(f"\n  Spec: {spec.get('spec_section', '?')} - {spec.get('section_title', '?')} (page {spec['source_page']})")
-        for mat in spec.get("materials", []):
-            brand = f" ({mat['brand_model']})" if mat.get("brand_model") else ""
-            print(f"    {mat['material_name']}{brand}  ->  {mat['pricing_key']}")
-
     print("\n" + "=" * 60)
 
 
@@ -782,35 +701,39 @@ def _parse_page_list(s: str) -> list[int]:
     return pages
 
 
-def main():
+def main() -> None:
+    """CLI entry point — drawing spatial analysis only.
+
+    For Specification PDF processing use:
+        python file_extractor.py <spec.pdf> [--json output.json]
+    """
     if len(sys.argv) < 2:
         print("Usage: python drawing_analyzer.py <drawing.pdf> [options]")
         print()
         print("Options:")
         print("  --api-key KEY          Gemini API key (or set GEMINI_API_KEY env var)")
-        print("  --model MODEL          Gemini model name (default: gemini-3-pro)")
+        print("  --model MODEL          Gemini model name (default: gemini-3-pro-preview)")
         print("  --plan-pages 2,3       Page numbers with plan views (1-indexed)")
         print("  --detail-pages 4,5,6   Page numbers with detail/section views")
-        print("  --spec-pdf FILE        Separate specification PDF to analyze")
-        print("  --spec-pages 40-45     Page numbers in spec PDF to analyze")
         print("  --all-pages            Analyze all pages as details")
         print("  --json OUTPUT          Output JSON file path")
         print()
-        print("Example (Ampersand project):")
+        print("NOTE: Specification PDF analysis is handled by file_extractor.py,")
+        print("      not this script.  Do not pass --spec-pdf here.")
+        print()
+        print("Example:")
         print("  python drawing_analyzer.py drawings.pdf --plan-pages 2,3 --detail-pages 4,5,6")
         sys.exit(1)
 
     pdf_path = sys.argv[1]
 
     # Parse CLI args
-    api_key = None
-    model = DEFAULT_MODEL
-    plan_pages = None
-    detail_pages = None
-    spec_pdf = None
-    spec_pages = None
-    json_output = None
-    all_pages = False
+    api_key: str | None = None
+    model: str = DEFAULT_MODEL
+    plan_pages: list[int] | None = None
+    detail_pages: list[int] | None = None
+    json_output: str | None = None
+    all_pages: bool = False
 
     args = sys.argv[2:]
     i = 0
@@ -827,12 +750,14 @@ def main():
         elif args[i] == "--detail-pages" and i + 1 < len(args):
             detail_pages = _parse_page_list(args[i + 1])
             i += 2
-        elif args[i] == "--spec-pdf" and i + 1 < len(args):
-            spec_pdf = args[i + 1]
-            i += 2
-        elif args[i] == "--spec-pages" and i + 1 < len(args):
-            spec_pages = _parse_page_list(args[i + 1])
-            i += 2
+        elif args[i] in ("--spec-pdf", "--spec-pages"):
+            # Gracefully reject legacy args with a helpful message
+            sys.stderr.write(
+                f"ERROR: '{args[i]}' is no longer supported in drawing_analyzer.py.\n"
+                f"  Use file_extractor.py for Specification PDF processing:\n"
+                f"    python file_extractor.py <spec.pdf> [--json output.json]\n"
+            )
+            sys.exit(1)
         elif args[i] == "--json" and i + 1 < len(args):
             json_output = args[i + 1]
             i += 2
@@ -857,8 +782,10 @@ def main():
         detail_pages = list(range(1, len(doc) + 1))
         doc.close()
 
-    if not plan_pages and not detail_pages and not spec_pages:
-        sys.stderr.write("Error: Specify at least one of --plan-pages, --detail-pages, --spec-pages, or --all-pages\n")
+    if not plan_pages and not detail_pages:
+        sys.stderr.write(
+            "Error: Specify at least one of --plan-pages, --detail-pages, or --all-pages\n"
+        )
         sys.exit(1)
 
     # Initialize Gemini client
@@ -866,15 +793,13 @@ def main():
     print(f"Model: {model}")
     print(f"Drawing: {pdf_path}")
 
-    # Run analysis
+    # Run spatial analysis
     analysis = analyze_drawing(
         pdf_path=pdf_path,
         client=client,
         model=model,
         plan_pages=plan_pages,
         detail_pages=detail_pages,
-        spec_pdf=spec_pdf,
-        spec_pages=spec_pages,
     )
 
     # Print summary

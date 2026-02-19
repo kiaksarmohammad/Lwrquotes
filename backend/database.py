@@ -189,12 +189,12 @@ PRICING = {
     "Cap_Membrane": {
         "canonical_name": "Cap Membrane",
         "category": "Membranes",
-        "avg_price": 98.00,
-        "min_price": 98.00,
+        "avg_price": 150,
+        "min_price": 150,
         "max_price": 216.95,
         "count": 1,
         "unit": "Roll",
-        "price_source": "Sage 2025 (Sopraply Traffic Cap 560)",
+        "price_source": "Sage 2025 (Sopraply Traffic Cap)",
         "sample_descriptions": ["Paradiene 30FR TG Cap Sheet"],
     },
     "EPDM_Accessory": {
