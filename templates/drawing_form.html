@@ -6,9 +6,20 @@
 <h1>Drawing Analysis</h1>
 
 {% if step == 1 %}
-<p>Upload architectural PDF drawings for AI-powered analysis using Gemini Vision.</p>
+<p>Enter the building address and upload architectural PDF drawings for AI-powered analysis.</p>
 
 <form method="POST" action="/drawing/upload" enctype="multipart/form-data" class="estimate-form">
+    <fieldset>
+        <legend>Building Address (required)</legend>
+        <div class="form-row">
+            <label for="address">Commercial Address</label>
+            <input type="text" id="address" name="address" required
+                   placeholder="e.g. 123 Main St, Calgary, AB"
+                   style="width: 100%;">
+            <small>Used to get building dimensions from Google Solar API for measurement calibration</small>
+        </div>
+    </fieldset>
+
     <fieldset>
         <legend>Drawing PDF (required)</legend>
         <div class="form-row">
@@ -62,27 +73,41 @@
     </fieldset>
 
     <fieldset>
-        <legend>Reference Measurement (Required)</legend>
-        <p style="margin-bottom: 10px;">
-            Provide a known dimension from the drawing so the AI can calibrate its measurements accurately.
-            Pick any dimension you can verify (e.g., a building wall length, a noted distance between gridlines).
-        </p>
+        <legend>Reference Measurement (from Google Maps)</legend>
+
+        {% if dims %}
+        <div style="margin: 10px 0; padding: 10px; background: #f0f7ff; border: 1px solid #b3d4fc; border-radius: 4px;">
+            <strong>Google Maps dimensions for {{ address }}:</strong><br>
+            East-West: {{ dims.width_ft }} ft &nbsp;|&nbsp; North-South: {{ dims.height_ft }} ft
+            &nbsp;&mdash;&nbsp; Using longest wall: <strong>{{ dims.longest_wall_ft }} ft ({{ dims.longest_wall_direction }})</strong>
+        </div>
+        {% elif dims_error %}
+        <div style="margin: 10px 0; padding: 10px; background: #fff0f0; border: 1px solid #fcb3b3; border-radius: 4px;">
+            <strong>Google Maps lookup failed for {{ address }}:</strong> {{ dims_error }}<br>
+            <small>You can enter a reference measurement manually below.</small>
+        </div>
+        {% endif %}
+
         <div class="form-row">
-            <label for="ref_description">What is this measurement?</label>
-            <input type="text" id="ref_description" name="ref_description" placeholder="e.g. North wall length, Distance between grid A and grid F" required>
-            <small>Describe which element on the drawing this dimension corresponds to</small>
+            <label for="ref_description">Reference Description</label>
+            <input type="text" id="ref_description" name="ref_description"
+                   placeholder="e.g. North wall length"
+                   value="{{ dims.longest_wall_direction + ' wall (from Google Maps)' if dims else '' }}">
+            <small>Auto-filled from Google Maps, or override manually</small>
         </div>
         <div class="form-row">
-            <label for="ref_value">Known Dimension Value</label>
+            <label for="ref_value">Reference Dimension Value</label>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="number" id="ref_value" name="ref_value" step="any" placeholder="e.g. 120" required style="flex: 1;">
+                <input type="number" id="ref_value" name="ref_value" step="any"
+                       placeholder="e.g. 120" style="flex: 1;"
+                       value="{{ dims.longest_wall_ft if dims else '' }}">
                 <select id="ref_unit" name="ref_unit" style="width: 100px;">
                     <option value="ft" selected>ft</option>
                     <option value="in">in</option>
                     <option value="m">m</option>
                 </select>
             </div>
-            <small>Enter the real-world value of this dimension as shown or known from site</small>
+            <small>Auto-filled from Google Maps, or override manually</small>
         </div>
         <div class="form-row">
             <label for="ref_page">Which page shows this measurement?</label>

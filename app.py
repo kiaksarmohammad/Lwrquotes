@@ -270,52 +270,7 @@ async def manual_estimate(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Address-Based Estimate Workflow
-# ---------------------------------------------------------------------------
-
-@app.get("/address", response_class=HTMLResponse)
-def address_form(request: Request):
-    return templates.TemplateResponse("address_form.html", {"request": request})
-
-
-@app.post("/address", response_class=HTMLResponse)
-async def address_estimate(
-    request: Request,
-    address: str = Form(...),
-    system_type: str = Form("TPO"),
-    parapet_height: float = Form(2.0),
-):
-    try:
-        from backend.buildingfootprintquery import get_building_insights, estimate_flat_roof
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-
-        # Run geocoding and Solar API query in a thread pool
-        insights = await loop.run_in_executor(
-            None, get_building_insights, address
-        )
-
-        result = estimate_flat_roof(
-            insights, system_type=system_type, parapet_height_ft=parapet_height
-        )
-        return templates.TemplateResponse("address_result.html", {
-            "request": request,
-            "address": address,
-            "result": result,
-            "error": None,
-        })
-    except Exception as e:
-        return templates.TemplateResponse("address_result.html", {
-            "request": request,
-            "address": address,
-            "result": None,
-            "error": str(e),
-        })
-
-
-# ---------------------------------------------------------------------------
-# Drawing Analysis Workflow
+# Drawing Analysis Workflow (includes address-based dimension lookup)
 # ---------------------------------------------------------------------------
 
 @app.get("/drawing", response_class=HTMLResponse)
@@ -327,13 +282,16 @@ def drawing_form(request: Request):
 
 
 @app.post("/drawing/upload", response_class=HTMLResponse)
-def drawing_upload(
+async def drawing_upload(
     request: Request,
+    address: str = Form(...),
     pdf_file: UploadFile = File(...),
     spec_file: UploadFile | None = File(None),
 ):
+    import asyncio
     import pypdfium2 as pdfium
     from backend.drawing_analyzer import suggest_page_ranges
+    from backend.buildingfootprintquery import get_building_dimensions
 
     # Save drawing PDF
     pdf_path = UPLOAD_DIR / f"{uuid4().hex}_{pdf_file.filename}"
@@ -361,9 +319,21 @@ def drawing_upload(
         spec_path_str = str(spec_path)
         spec_filename = spec_file.filename
 
+    # Lookup building dimensions from Google Solar API
+    dims = None
+    dims_error = None
+    try:
+        loop = asyncio.get_running_loop()
+        dims = await loop.run_in_executor(None, get_building_dimensions, address)
+    except Exception as e:
+        dims_error = str(e)
+
     return templates.TemplateResponse("drawing_form.html", {
         "request": request,
         "step": 2,
+        "address": address,
+        "dims": dims,
+        "dims_error": dims_error,
         "pdf_path": str(pdf_path),
         "pdf_filename": pdf_file.filename,
         "page_count": page_count,

@@ -35,8 +35,8 @@ COVERAGE_RATES = {
     "Base_Membrane":                   {"sqft_per_unit": 100, "unit": "roll"},
     "Cap_Membrane":                    {"sqft_per_unit": 86,  "unit": "roll"},
     "SBS_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
-    "EPDM_Membrane":                   {"sqft_per_unit": 100, "unit": "roll"},
-    "TPO_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
+    "EPDM_Membrane":                   {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
+    "TPO_Membrane":                    {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
     "PVC_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
     "Vapour_Barrier_Membrane":         {"sqft_per_unit": 200, "unit": "roll"},
     "EPDM_Accessory":                  {"sqft_per_unit": 50,  "unit": "roll"},
@@ -81,6 +81,63 @@ COVERAGE_RATES = {
     "Nails_Staples":                   {"sqft_per_unit": 200, "unit": "box"},
     "Screws":                          {"sqft_per_unit": 100, "unit": "box"},
     "Equipment_Torch":                 {"sqft_per_unit": 100, "unit": "roll"},
+    # --- EPDM/TPO specific keys used by AI detail path ---
+    "EPDM_Membrane_60mil":             {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
+    "EPDM_Membrane_45mil":             {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
+    "EPDM_Filter_Fabric":              {"sqft_per_unit": 300,  "unit": "roll"},
+    "EPDM_Drainage_Mat":               {"sqft_per_unit": 300,  "unit": "roll (6'x50')"},
+    "EPDM_Seam_Tape":                  {"sqft_per_unit": 1000, "unit": "roll (100 lf)"},
+    "EPDM_Bonding_Adhesive":           {"sqft_per_unit": 300,  "unit": "pail (5 gal)"},
+    "EPDM_Primer_HP250":               {"sqft_per_unit": 50,   "unit": "gallon"},
+    "EPDM_Cav_Grip":                   {"sqft_per_unit": 500,  "unit": "cylinder"},
+    "EPDM_Lap_Sealant":                {"lf_per_unit": 22,     "unit": "tube"},
+    "EPDM_PS_Corner":                  {"per_each": 1,         "unit": "piece"},
+    "EPDM_Curb_Flash":                 {"lf_per_unit": 50,     "unit": "roll"},
+    "EPDM_RUSS_6":                     {"lf_per_unit": 100,    "unit": "roll"},
+    "EPDM_Pipe_Flashing":              {"per_each": 1,         "unit": "piece"},
+    "Vapour_Barrier_Sopravapor":        {"sqft_per_unit": 500,  "unit": "roll"},
+    "ISO_2_5_inch":                     {"sqft_per_unit": 16,   "unit": "sheet (4'x4')"},
+    "Densdeck_Half_Inch":               {"sqft_per_unit": 32,   "unit": "sheet (4'x8')"},
+    "Tapered_ISO":                      {"sqft_per_unit": 1,    "unit": "sqft"},
+    "Soprasmart_ISO_HD":                {"sqft_per_unit": 32,   "unit": "sheet (4'x8')"},
+    "Duotack_Adhesive":                 {"sqft_per_unit": 500,  "unit": "case"},
+    "Elastocol_Stick":                  {"sqft_per_unit": 333,  "unit": "pail (19L)"},
+    "TPO_Bonding_Adhesive_SureWeld":    {"sqft_per_unit": 300,  "unit": "pail (5 gal)"},
+    "TPO_Primer":                       {"sqft_per_unit": 100,  "unit": "gallon"},
+    "TPO_Flashing_24in":                {"lf_per_unit": 50,     "unit": "roll"},
+    "TPO_Flashing_12in":                {"lf_per_unit": 50,     "unit": "roll"},
+    "TPO_Rhinobond_Plate":              {"sqft_per_unit": 4000, "unit": "pallet"},
+    "TPO_Screws":                       {"sqft_per_unit": 4000, "unit": "box"},
+    "TPO_Corner":                       {"per_each": 1,         "unit": "piece"},
+    "TPO_Tuck_Tape":                    {"lf_per_unit": 150,    "unit": "roll"},
+    "TPO_Lap_Sealant":                  {"lf_per_unit": 22,     "unit": "tube"},
+    "TPO_Pipe_Boot":                    {"per_each": 1,         "unit": "piece"},
+    # --- Common materials ---
+    "Vapour_Barrier_TieIn":             {"per_each": 1,         "unit": "allowance"},
+    "Fire_Prevention_Board":            {"sqft_per_unit": 20,   "unit": "sheet (20 sqft)"},
+    "Screws_Plates_Combo":              {"sqft_per_unit": 1000, "unit": "box (1M)"},
+    "Flashing_Bond_Mastic":             {"lf_per_unit": 50,     "unit": "tube"},
+    "Flashing_Bond_Mastic_Garland":     {"lf_per_unit": 50,     "unit": "pail"},
+    "Asphalt_EasyMelt":                 {"sqft_per_unit": 200,  "unit": "pail"},
+    "Catalyst":                         {"per_each": 1,         "unit": "can"},
+    "Sopralap_Cover_Strip":             {"lf_per_unit": 75,     "unit": "roll"},
+    "Roof_Tape_IKO":                    {"lf_per_unit": 75,     "unit": "roll"},
+    "Tuff_Stuff_MS":                    {"lf_per_unit": 15,     "unit": "tube"},
+    "Gar_Mesh":                         {"sqft_per_unit": 300,  "unit": "roll"},
+    "Garla_Flex":                       {"sqft_per_unit": 200,  "unit": "pail"},
+    "PMMA_Primer":                      {"sqft_per_unit": 200,  "unit": "pail (10kg)"},
+    "Gum_Box":                          {"per_each": 1,         "unit": "EA"},
+    # --- Wood/lumber ---
+    "Cant_Strip_4x4":                   {"lf_per_unit": 8,      "unit": "8ft piece"},
+    "Lumber_2x4":                       {"lf_per_unit": 8,      "unit": "8ft piece"},
+    "Lumber_2x6":                       {"lf_per_unit": 8,      "unit": "8ft piece"},
+    "Lumber_2x10":                      {"lf_per_unit": 8,      "unit": "8ft piece"},
+    "Plywood_Three_Quarter":            {"sqft_per_unit": 32,   "unit": "4'x8' sheet"},
+    "Plywood_Half":                     {"sqft_per_unit": 32,   "unit": "4'x8' sheet"},
+    "Metal_Flashing_Galvanized":        {"lf_per_unit": 1,      "unit": "LF"},
+    "Metal_Flashing_Prepainted":        {"lf_per_unit": 1,      "unit": "LF"},
+    "Metal_Cladding_Panel":             {"sqft_per_unit": 1,    "unit": "sqft"},
+    "EPS_Insulation_EPDM":             {"sqft_per_unit": 16,   "unit": "sheet (4'x4')"},
 }
 
 # Map AI detail_type -> (measurement_type, RoofMeasurements attribute)
@@ -1626,6 +1683,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             total_roofing_cost += curb_flash_rolls * curb_flash_price
 
         # EPDM RUSS-6 for perimeter
+        russ_rolls = 0
         if parapet_lf > 0:
             russ_price = _get_price("EPDM_RUSS_6")
             russ_rolls = math.ceil(parapet_lf * 1.1 / 100.0)
@@ -2130,12 +2188,10 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     drawing_analyzer.py to determine which materials go in each detail,
     then applies measurements to calculate quantities and costs.
 
-    Handles:
-    - Multiple field_assembly details: splits area evenly among them
-      (they are alternative assemblies for different zones, not additive)
-    - expansion_joint: uses 25% of perimeter (typical, not full perimeter)
-    - sleeper_curb measured in linear_ft: multiplies count × 10 LF typical
-    - Pricing key fallback: checks all material dictionaries
+    Quantity resolution priority:
+    1. Plan-view detail_quantities (AI measured from plan view)
+    2. Detail-view scope_quantity (AI read from detail drawing annotations)
+    3. DETAIL_TYPE_MAP fallback (global measurements, last resort)
     """
     results = {
         "project_measurements": {
@@ -2149,6 +2205,16 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     }
 
     grand_total = 0.0
+
+    # --- Build plan-view detail_quantities lookup ---
+    # Merges detail_quantities from all plan pages into a single dict
+    plan_detail_qtys: dict[str, dict] = {}
+    for plan in analysis.get("plan_analysis", []):
+        if plan.get("parse_error"):
+            continue
+        for ref_key, qty_info in plan.get("detail_quantities", {}).items():
+            if isinstance(qty_info, dict) and qty_info.get("measurement", 0) > 0:
+                plan_detail_qtys[ref_key] = qty_info
 
     # Collect all details from AI analysis
     all_details = []
@@ -2165,8 +2231,6 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         return results
 
     # --- Prevent double-counting field assemblies ---
-    # Count how many field_assembly details exist; they are alternative
-    # assemblies for different roof zones, so we split the area among them.
     field_assembly_count = sum(
         1 for d in all_details if d.get("detail_type") == "field_assembly"
     )
@@ -2174,33 +2238,56 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     for detail in all_details:
         dtype = detail.get("detail_type", "unknown")
         dname = detail.get("detail_name", "Unknown Detail")
-        mtype = detail.get("measurement_type", "each")
         dref = detail.get("_drawing_ref", "?")
+        quantity_source = "fallback"
 
-        # Look up the base measurement for this detail type
-        type_info = DETAIL_TYPE_MAP.get(dtype)
-        if type_info:
-            _, attr = type_info
-            base_value = getattr(m, attr, 0)
+        # --- Resolve base_value and mtype using priority order ---
+
+        # Priority 1: Plan-view detail_quantities
+        # Try matching by detail name pattern (e.g., "Detail 5/R3.1")
+        plan_qty = None
+        detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
+        for ref_key, qty_info in plan_detail_qtys.items():
+            # Match "Detail 5/R3.1" against plan keys like "Detail 5/R3.1"
+            if detail_num.lower() in ref_key.lower() or ref_key.lower() in f"{detail_num}/{dref}".lower():
+                plan_qty = qty_info
+                break
+
+        if plan_qty and plan_qty.get("measurement", 0) > 0:
+            base_value = float(plan_qty["measurement"])
+            mtype = plan_qty.get("unit", detail.get("measurement_type", "each"))
+            quantity_source = "plan_view"
+
+        # Priority 2: AI scope_quantity from detail drawing
+        elif detail.get("scope_quantity") is not None and detail["scope_quantity"] > 0:
+            base_value = float(detail["scope_quantity"])
+            mtype = detail.get("scope_unit", detail.get("measurement_type", "each"))
+            quantity_source = "detail_drawing"
+
+        # Priority 3: DETAIL_TYPE_MAP fallback (global measurements)
         else:
-            base_value = 1
+            mtype = detail.get("measurement_type", "each")
+            type_info = DETAIL_TYPE_MAP.get(dtype)
+            if type_info:
+                map_mtype, attr = type_info
+                base_value = getattr(m, attr, 0)
+                # Use the map's measurement_type to stay consistent with base_value
+                mtype = map_mtype
+            else:
+                base_value = 1
 
-        # --- Adjustments to prevent over-counting ---
-        # Field assemblies: split area evenly among alternatives
-        if dtype == "field_assembly" and field_assembly_count > 1:
-            base_value = base_value / field_assembly_count
+            # --- Adjustments for fallback mode ---
+            if dtype == "field_assembly" and field_assembly_count > 1:
+                base_value = base_value / field_assembly_count
 
-        # Expansion joints: typically only a portion of perimeter
-        if dtype == "expansion_joint":
-            base_value = base_value * 0.25  # ~25% of perimeter is typical
+            if dtype == "expansion_joint":
+                base_value = base_value * 0.25
 
-        # Sleeper curbs: if measured in LF, multiply count × typical 10 LF each
-        if dtype == "sleeper_curb" and mtype == "linear_ft":
-            base_value = base_value * 10  # 10 LF per sleeper curb typical
+            if dtype == "sleeper_curb" and mtype == "linear_ft":
+                base_value = base_value * 10
 
-        # Mechanical curbs: if measured in LF, multiply count × typical 20 LF perimeter each
-        if dtype == "mechanical_curb" and mtype == "linear_ft":
-            base_value = base_value * 20  # ~20 LF perimeter per mechanical unit typical
+            if dtype == "mechanical_curb" and mtype == "linear_ft":
+                base_value = base_value * 20
 
         detail_result = {
             "detail_name": dname,
@@ -2208,6 +2295,7 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "drawing_ref": dref,
             "measurement_type": mtype,
             "base_measurement": round(base_value, 1),
+            "quantity_source": quantity_source,
             "layers": [],
             "detail_cost": 0.0,
         }
@@ -2236,8 +2324,10 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             coverage = COVERAGE_RATES.get(pkey, {})
             waste = 1.10  # default 10% waste
 
+            # Default sqft_per_unit to 32 (4'x8' sheet) instead of 1 to avoid
+            # catastrophic overcount when a pricing key is missing from COVERAGE_RATES
             if mtype == "sqft" or (mtype == "linear_ft" and "sqft_per_unit" in coverage and "lf_per_unit" not in coverage):
-                sqft_per = coverage.get("sqft_per_unit", 1)
+                sqft_per = coverage.get("sqft_per_unit", 32)
                 qty = math.ceil(base_value * waste / sqft_per)
                 unit = coverage.get("unit", "unit")
             elif mtype == "linear_ft" and "lf_per_unit" in coverage:
@@ -2263,6 +2353,19 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             detail_result["detail_cost"] += line_cost
 
         detail_result["detail_cost"] = round(detail_result["detail_cost"], 2)
+
+        # --- Sanity cap: flag details that exceed $100/sqft of roof area ---
+        roof_area = m.total_roof_area_sqft or 1
+        max_reasonable_detail_cost = roof_area * 100  # $100/sqft is extremely high
+        if detail_result["detail_cost"] > max_reasonable_detail_cost:
+            detail_result["warning"] = (
+                f"Detail cost ${detail_result['detail_cost']:,.0f} exceeds sanity cap "
+                f"(${max_reasonable_detail_cost:,.0f}). Quantity source: {quantity_source}. "
+                f"Capping at ${max_reasonable_detail_cost:,.0f}."
+            )
+            detail_result["detail_cost_uncapped"] = detail_result["detail_cost"]
+            detail_result["detail_cost"] = round(max_reasonable_detail_cost, 2)
+
         grand_total += detail_result["detail_cost"]
         results["details"].append(detail_result)
 

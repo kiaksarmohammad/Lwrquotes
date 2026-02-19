@@ -95,7 +95,12 @@
     <h3>{{ detail.detail_name }} [{{ detail.detail_type }}]
         <small>(ref: {{ detail.drawing_ref | default("?") }})</small>
     </h3>
-    <p>Measured in: {{ detail.measurement_type }} | Base value: {{ "{:,}".format(detail.base_measurement) }} | Detail cost: {{ detail.detail_cost | currency }}</p>
+    <p>Measured in: {{ detail.measurement_type }} | Base value: {{ "{:,}".format(detail.base_measurement) }} | Detail cost: {{ detail.detail_cost | currency }}
+        {% if detail.quantity_source %}<span class="tag">qty: {{ detail.quantity_source }}</span>{% endif %}
+    </p>
+    {% if detail.warning %}
+    <div class="alert alert-warning"><small>{{ detail.warning }}</small></div>
+    {% endif %}
 
     <table class="results-table">
         <thead>

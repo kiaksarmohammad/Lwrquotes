@@ -9,6 +9,8 @@ pitch, azimuth, surface area, and height data.
 import os
 import math
 import time
+from typing import Optional
+
 import requests
 
 from geopy.geocoders import Nominatim, ArcGIS
@@ -27,7 +29,7 @@ def _geocode_address(address: str) -> tuple[float, float]:
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            location = geolocator.geocode(address)
+            location = geolocator.geocode(address, timeout=10)
             break
         except GeocoderServiceError as e:
             if attempt < max_retries - 1:
@@ -164,9 +166,71 @@ def _estimate_perimeter_from_bbox(insights: dict) -> float:
     return 2 * (width_ft + height_ft)
 
 
+def get_building_dimensions(address: str) -> dict:
+    """
+    Return simplified building dimensions (width/height in feet) for
+    calibrating drawing measurements.
+
+    Returns a dict with:
+      - width_ft: East-West extent
+      - height_ft: North-South extent
+      - longest_wall_ft: max of the two
+      - longest_wall_direction: "East-West" or "North-South"
+    """
+    M_TO_FT = 3.28084
+    insights = get_building_insights(address)
+    segments = insights.get("roof_segments", [])
+
+    all_sw_lats, all_sw_lngs = [], []
+    all_ne_lats, all_ne_lngs = [], []
+
+    for seg in segments:
+        bbox = seg.get("bounding_box", {})
+        sw = bbox.get("sw", {})
+        ne = bbox.get("ne", {})
+        if sw.get("latitude") is not None and ne.get("latitude") is not None:
+            all_sw_lats.append(sw["latitude"])
+            all_sw_lngs.append(sw["longitude"])
+            all_ne_lats.append(ne["latitude"])
+            all_ne_lngs.append(ne["longitude"])
+
+    if not all_sw_lats:
+        # Fallback: square assumption from ground area
+        ground_area_sqft = insights["ground_area_m2"] * 10.7639
+        side = round(math.sqrt(ground_area_sqft), 1)
+        return {
+            "width_ft": side,
+            "height_ft": side,
+            "longest_wall_ft": side,
+            "longest_wall_direction": "East-West",
+        }
+
+    sw_lat = min(all_sw_lats)
+    sw_lng = min(all_sw_lngs)
+    ne_lat = max(all_ne_lats)
+    ne_lng = max(all_ne_lngs)
+
+    width_ft = round(geodesic((sw_lat, sw_lng), (sw_lat, ne_lng)).meters * M_TO_FT, 1)
+    height_ft = round(geodesic((sw_lat, sw_lng), (ne_lat, sw_lng)).meters * M_TO_FT, 1)
+
+    if width_ft >= height_ft:
+        longest_wall_ft = width_ft
+        longest_wall_direction = "East-West"
+    else:
+        longest_wall_ft = height_ft
+        longest_wall_direction = "North-South"
+
+    return {
+        "width_ft": width_ft,
+        "height_ft": height_ft,
+        "longest_wall_ft": longest_wall_ft,
+        "longest_wall_direction": longest_wall_direction,
+    }
+
+
 def estimate_flat_roof(insights: dict, system_type: str = "TPO",
                        parapet_height_ft: float = 2.0,
-                       hvac_count_est: int = None) -> dict:
+                       hvac_count_est: Optional[int] = None) -> dict:
     """
     Generate a cost estimate from Google Solar API building insights.
 

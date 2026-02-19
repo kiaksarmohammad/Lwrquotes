@@ -12,7 +12,7 @@ except ImportError:
     pdfplumber = None
 
 try:
-    from PyPDF2 import PdfReader
+    from PyPDF2 import PdfReader  # type: ignore[import-not-found]
 except ImportError:
     PdfReader = None
 

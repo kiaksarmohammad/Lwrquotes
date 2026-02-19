@@ -199,7 +199,19 @@ For EACH detail or section shown on this drawing page, identify:
 3. All materials/products shown, listed from BOTTOM to TOP (or inside to outside)
 4. For each material, map it to the closest pricing_key from our database
 5. Whether this detail is measured in: sqft, linear_ft, or each
-6. reference measurement can often be found in the details
+6. SCOPE & QUANTITY: Read any dimensions, annotations, or notes on the detail to determine:
+   - The physical size of the detail (e.g., opening dimensions, curb size, etc.)
+   - Any "typical of N" or "N locations" callouts
+   - For openings/infills: calculate the area from shown dimensions (e.g., 4'x6' = 24 sqft)
+   - For linear details: note the length if dimensioned
+   - For penetrations/curbs: note the size (e.g., "6 inch pipe", "48x48 curb")
+   If no quantity can be determined from the drawing, set scope_quantity to null.
+
+IMPORTANT classification rules:
+- "field_assembly" is ONLY for the main roof membrane system that covers the entire roof surface
+- Slab openings, infills, patches, and localized repairs are NOT field_assembly - classify as "opening_cover"
+- Structural repairs (concrete patching, grouting) are NOT field_assembly - classify as "opening_cover"
+- Each penetration, curb, or opening is measured as "each" with a small count
 
 Our pricing database keys:
 {pricing_keys}
@@ -215,6 +227,9 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
       "detail_name": "Detail 1 - Typical Parapet",
       "detail_type": "parapet",
       "measurement_type": "linear_ft",
+      "scope_quantity": 200,
+      "scope_unit": "linear_ft",
+      "scope_notes": "Noted as typical parapet, dimension shows 200 LF total",
       "layers": [
         {{
           "position": 1,
@@ -250,6 +265,12 @@ Count and identify everything visible on this plan view:
 
 5. DETAIL REFERENCES - note which detail drawings are referenced (e.g., "see Detail 3/R3.1")
 
+6. DETAIL QUANTITIES - For each detail reference visible on the plan, determine:
+   - How many times/locations it applies
+   - The total measurement (LF of parapet it applies to, sqft of area, count of openings, etc.)
+   - Use the drawing scale and visible dimensions to calculate actual quantities
+   This is CRITICAL for accurate pricing - each detail needs a real-world quantity.
+
 Return ONLY valid JSON (no markdown, no explanation) in this format:
 {{
   "drawing_ref": "the drawing sheet number",
@@ -263,6 +284,10 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
     "gas_penetrations": 0,
     "electrical_penetrations": 0,
     "plumbing_vents": 0
+  }},
+  "detail_quantities": {{
+    "Detail 1/R3.0": {{"count": 1, "measurement": 636, "unit": "linear_ft", "notes": "applies to full parapet perimeter"}},
+    "Detail 5/R3.1": {{"count": 3, "measurement": 72, "unit": "sqft", "notes": "3 slab openings, each ~24 sqft"}}
   }},
   "zones": [
     {{
