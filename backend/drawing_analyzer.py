@@ -49,7 +49,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 # Configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "gemini-3-pro-preview"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"
 RENDER_SCALE = 2  # 2x = ~144 DPI for drawing pages
 MAX_GEMINI_WORKERS = 2  # Limit concurrent Gemini API calls to avoid rate limits
 
@@ -712,7 +712,7 @@ def main() -> None:
         print()
         print("Options:")
         print("  --api-key KEY          Gemini API key (or set GEMINI_API_KEY env var)")
-        print("  --model MODEL          Gemini model name (default: gemini-3-pro-preview)")
+        print("  --model MODEL          Gemini model name (default: gemini-3.1-pro-preview)")
         print("  --plan-pages 2,3       Page numbers with plan views (1-indexed)")
         print("  --detail-pages 4,5,6   Page numbers with detail/section views")
         print("  --all-pages            Analyze all pages as details")
