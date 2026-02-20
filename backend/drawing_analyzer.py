@@ -686,28 +686,6 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
         "plan_analysis": [],
         "detail_analysis": [],
     }
-    """TODO"""
-    dref:list[dict] = []
-    drefid:list[dict] = []
-    unit_detail_map:list[dict] = []
-    for unit_labels in result["plan_analysis"]:
-        pages = unit_labels.get("unit_labels", [])
-        for unit_label in pages:
-            dref.append(unit_label)
-
-    for details in result["detail_analysis"]:
-        drefidpages = details.get("details", [])
-        for detail in drefidpages:
-            drefid.append(detail)
-    for unit_label in dref:
-        for detail in drefid:
-            if detail["detail_ref_id"] in unit_label["detail_ref"]:
-                unit_detail = detail | unit_label | {"match_status":"matched"}
-                unit_detail_map.append(unit_detail)
-                break
-        else:
-            unit_detail_map.append(unit_label|{"match_status":"unmatched"})
-    result["unit_detail_map"] = unit_detail_map            
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures: dict = {}
@@ -725,6 +703,29 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
                 result[key] = future.result()
             except Exception as e:
                 sys.stderr.write(f"Error in {key}: {e}\n")
+
+    # --- Build unit_detail_map by joining plan unit_labels with detail_analysis ---
+    dref: list[dict] = []
+    drefid: list[dict] = []
+    unit_detail_map: list[dict] = []
+    for plan_page in result["plan_analysis"]:
+        for unit_label in plan_page.get("unit_labels", []):
+            dref.append(unit_label)
+
+    for detail_page in result["detail_analysis"]:
+        for detail in detail_page.get("details", []):
+            drefid.append(detail)
+
+    for unit_label in dref:
+        for detail in drefid:
+            if detail.get("detail_ref_id", "") in unit_label.get("detail_ref", ""):
+                unit_detail = detail | unit_label | {"match_status": "matched"}
+                unit_detail_map.append(unit_detail)
+                break
+        else:
+            unit_detail_map.append(unit_label | {"match_status": "unmatched"})
+
+    result["unit_detail_map"] = unit_detail_map
 
     return result
 

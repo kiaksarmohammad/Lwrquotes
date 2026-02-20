@@ -2482,8 +2482,6 @@ def measurements_from_analysis(analysis: dict,
         electrical_penetration_count=counts.get("electrical_penetrations", 0),
         plumbing_vent_count=counts.get("plumbing_vents", 0),
     )
-
-
 def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     """
     Calculate takeoff using AI-identified detail assemblies.
@@ -2524,6 +2522,14 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         for ref_key, qty_info in plan.get("detail_quantities", {}).items():
             if isinstance(qty_info, dict) and qty_info.get("measurement", 0) > 0:
                 plan_detail_qtys[ref_key] = qty_info
+
+    # --- Build unit_detail_map lookup: detail_ref_id → unit data ---
+    unit_map: dict[str, dict] = {}
+    for entry in analysis.get("unit_detail_map", []):
+        if entry.get("match_status") == "matched":
+            ref_id = entry.get("detail_ref_id", "")
+            if ref_id:
+                unit_map[ref_id] = entry
 
     # Collect all details from AI analysis
     all_details = []
@@ -2566,7 +2572,6 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             if detail_type in DETAIL_TYPE_MAP:
                 mtype, attr = DETAIL_TYPE_MAP[detail_type]
                 info["detail_cost_calculation"] = getattr(m, attr, 0)
-    """TODO"""
     details_by_type = defaultdict(list)
     for details in all_details:
         dtype = details.get("detail_type", "unkown")
@@ -2594,50 +2599,64 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         dname = detail.get("detail_name", "Unknown Detail")
         dref = detail.get("_drawing_ref", "?")
         quantity_source = "fallback"
-       
+        unit_data = None
 
         # --- Resolve base_value and mtype using priority order ---
 
-        # Priority 1: Plan-view detail_quantities
-        # Try matching by detail name pattern (e.g., "Detail 5/R3.1")
-        plan_qty = None
-        detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
-        for ref_key, qty_info in plan_detail_qtys.items():
-            # Match "Detail 5/R3.1" against plan keys like "Detail 5/R3.1"
-            if detail_num.lower() in ref_key.lower() or ref_key.lower() in f"{detail_num}/{dref}".lower():
-                plan_qty = qty_info
-                break
+        # Priority 0: Unit-specific perimeter from unit_detail_map (most accurate)
+        detail_ref_id = detail.get("detail_ref_id", "")
+        unit_data = unit_map.get(detail_ref_id)
+        if unit_data and unit_data.get("total_perimeter_lf", 0) > 0:
+            mtype_det = detail.get("measurement_type", "linear_ft")
+            if mtype_det == "linear_ft":
+                base_value = float(unit_data["total_perimeter_lf"])
+            elif mtype_det == "sqft":
+                base_value = float(unit_data.get("total_area_sqft", 0))
+            else:  # "each"
+                base_value = float(unit_data.get("total_count", 1))
+            mtype = mtype_det
+            quantity_source = "unit_perimeter"
 
-        if plan_qty and plan_qty.get("measurement", 0) > 0:
-            base_value = float(plan_qty["measurement"])
-            mtype = plan_qty.get("unit", detail.get("measurement_type", "each"))
-            quantity_source = "plan_view"
-
-        # Priority 2: AI scope_quantity from detail drawing
-        elif detail.get("scope_quantity") is not None and detail["scope_quantity"] > 0:
-            base_value = float(detail["scope_quantity"])
-            mtype = detail.get("scope_unit", detail.get("measurement_type", "each"))
-            quantity_source = "detail_drawing"
-
-        # Priority 3: DETAIL_TYPE_MAP fallback (global measurements)
         else:
-            mtype = detail.get("measurement_type", "each")
-            type_info = DETAIL_TYPE_MAP.get(dtype)
-            if type_info:
-                map_mtype, attr = type_info
-                base_value = getattr(m, attr, 0)
-                # Use the map's measurement_type to stay consistent with base_value
-                mtype = map_mtype
+            # Priority 1: Plan-view detail_quantities
+            # Try matching by detail name pattern (e.g., "Detail 5/R3.1")
+            plan_qty = None
+            detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
+            for ref_key, qty_info in plan_detail_qtys.items():
+                # Match "Detail 5/R3.1" against plan keys like "Detail 5/R3.1"
+                if detail_num.lower() in ref_key.lower() or ref_key.lower() in f"{detail_num}/{dref}".lower():
+                    plan_qty = qty_info
+                    break
+
+            if plan_qty and plan_qty.get("measurement", 0) > 0:
+                base_value = float(plan_qty["measurement"])
+                mtype = plan_qty.get("unit", detail.get("measurement_type", "each"))
+                quantity_source = "plan_view"
+
+            # Priority 2: AI scope_quantity from detail drawing
+            elif detail.get("scope_quantity") is not None and detail["scope_quantity"] > 0:
+                base_value = float(detail["scope_quantity"])
+                mtype = detail.get("scope_unit", detail.get("measurement_type", "each"))
+                quantity_source = "detail_drawing"
+
+            # Priority 3: DETAIL_TYPE_MAP fallback (global measurements)
             else:
-                base_value = 1
+                mtype = detail.get("measurement_type", "each")
+                type_info = DETAIL_TYPE_MAP.get(dtype)
+                if type_info:
+                    map_mtype, attr = type_info
+                    base_value = getattr(m, attr, 0)
+                    mtype = map_mtype
+                else:
+                    base_value = 1
 
-            # --- Adjustments for fallback mode ---
-            if dtype == "expansion_joint":
-                base_value = base_value * 0.25
+                # --- Adjustments for fallback mode ---
+                if dtype == "expansion_joint":
+                    base_value = base_value * 0.25
 
-            # Use realistic curb perimeters instead of arbitrary multipliers
-            if dtype in CURB_TYPICAL_PERIMETER_LF and mtype == "linear_ft":
-                base_value = base_value * CURB_TYPICAL_PERIMETER_LF[dtype]
+                # Use realistic curb perimeters instead of arbitrary multipliers
+                if dtype in CURB_TYPICAL_PERIMETER_LF and mtype == "linear_ft":
+                    base_value = base_value * CURB_TYPICAL_PERIMETER_LF[dtype]
 
         detail_result = {
             "detail_name": dname,
@@ -2649,6 +2668,9 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "layers": [],
             "detail_cost": 0.0,
         }
+        if unit_data:
+            detail_result["unit_instances"] = unit_data.get("instances", [])
+            detail_result["unit_label"] = unit_data.get("label", "")
         if detail.get("_is_alternative"):
             detail_result["_is_alternative"] = True
             results["details"].append(detail_result)
