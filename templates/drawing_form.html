@@ -48,6 +48,13 @@
 <form method="POST" action="/drawing/measure" class="estimate-form">
     <input type="hidden" name="pdf_path" value="{{ pdf_path }}">
     <input type="hidden" name="spec_path" value="{{ spec_path }}">
+    {# Pass Solar API dims as hidden fields so they reliably reach /drawing/measure #}
+    {% if dims %}
+    <input type="hidden" name="solar_width_ft" value="{{ dims.width_ft }}">
+    <input type="hidden" name="solar_height_ft" value="{{ dims.height_ft }}">
+    <input type="hidden" name="solar_longest_ft" value="{{ dims.longest_wall_ft }}">
+    <input type="hidden" name="solar_longest_dir" value="{{ dims.longest_wall_direction }}">
+    {% endif %}
 
     <fieldset>
         <legend>Page Ranges (1-indexed, comma-separated or ranges like 1-3)</legend>

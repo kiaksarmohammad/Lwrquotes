@@ -270,45 +270,9 @@
 {% set bid = detail_estimate.bid_summary %}
 {% if bid %}
 <div class="bid-summary">
-    <h2>Estimate Summary</h2>
-    <table class="results-table">
-        <tbody>
-            <tr>
-                <td>Total Material Cost</td>
-                <td>{{ bid.material_cost | currency }}</td>
-            </tr>
-            <tr>
-                <td>Labour Cost</td>
-                <td>{{ bid.labour_cost | currency }}</td>
-            </tr>
-            <tr>
-                <td>Other Costs</td>
-                <td>{{ bid.other_costs | currency }}</td>
-            </tr>
-            <tr>
-                <td>Total Direct Cost (COGS)</td>
-                <td>{{ bid.total_direct_cost | currency }}</td>
-            </tr>
-            <tr>
-                <td>Overhead (35%)</td>
-                <td>{{ bid.overhead_35pct | currency }}</td>
-            </tr>
-            <tr>
-                <td>Breakeven</td>
-                <td>{{ bid.breakeven | currency }}</td>
-            </tr>
-            <tr>
-                <td>Net Profit (10%)</td>
-                <td>{{ bid.profit_10pct | currency }}</td>
-            </tr>
-        </tbody>
-    </table>
     <div class="bid-total">
-        <span class="label">Selling Price</span>
-        <span class="value">{{ bid.total_estimate | currency }}</span>
-    </div>
-    <div class="bid-persqft">
-        {{ bid.per_sqft | currency }} / sqft
+        <span class="label">Total Material Cost</span>
+        <span class="value">{{ bid.material_cost | currency }}</span>
     </div>
 </div>
 {% endif %}

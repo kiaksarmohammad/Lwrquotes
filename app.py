@@ -356,6 +356,11 @@ async def drawing_measure(
     ref_value: float = Form(0.0),
     ref_unit: str = Form("ft"),
     ref_page: str = Form(""),
+    # Solar API dims passed through as hidden form fields from step 2
+    solar_width_ft: float = Form(0.0),
+    solar_height_ft: float = Form(0.0),
+    solar_longest_ft: float = Form(0.0),
+    solar_longest_dir: str = Form(""),
 ):
     import logging
     import time as _time
@@ -387,14 +392,34 @@ async def drawing_measure(
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
 
-        # Build reference measurement dict
+        # Build reference measurement dict.
+        # Priority: manual user entry first, then Solar API dims as guaranteed fallback.
         reference_measurement = None
         if ref_description.strip() and ref_value > 0:
+            # User explicitly provided (or confirmed) a reference measurement
             reference_measurement = {
                 "description": ref_description.strip(),
                 "value": ref_value,
                 "unit": ref_unit,
             }
+            logger.info(
+                f"/drawing/measure using manual reference: "
+                f"{ref_value} {ref_unit} — '{ref_description.strip()}'"
+            )
+        elif solar_longest_ft > 0 and solar_longest_dir:
+            # Fall back to Solar API measurement when no manual reference given
+            reference_measurement = {
+                "description": f"{solar_longest_dir} wall (Google Solar API)",
+                "value": solar_longest_ft,
+                "unit": "ft",
+            }
+            logger.info(
+                f"/drawing/measure using Solar API reference: "
+                f"{solar_longest_ft} ft — '{solar_longest_dir} wall' "
+                f"(also available: width={solar_width_ft} ft, height={solar_height_ft} ft)"
+            )
+        else:
+            logger.info("/drawing/measure: no reference measurement available — Gemini will rely on drawing scale only")
 
         logger.info(f"/drawing/measure called — plan_pages={plan_pg}, detail_pages={detail_pg}, ref={reference_measurement}")
         t0 = _time.time()

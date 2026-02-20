@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+try:
+    import openpyxl
+except ImportError:  # Optional dependency for Excel takeoff overrides
+    openpyxl = None
+
 from backend.database import (
     PRICING,
     EPDM_SPECIFIC_MATERIALS,
@@ -79,10 +84,11 @@ COVERAGE_RATES = {
     "Roof_Anchor":                     {"per_each": 1, "unit": "EA"},
     "Gutter_Downpipe":                 {"per_each": 1, "unit": "EA"},
     "Clips":                           {"per_each": 1, "unit": "piece"},
-    "Fasteners":                       {"sqft_per_unit": 100, "unit": "box (1M)"},
-    "Insulation_Plates":               {"sqft_per_unit": 100, "unit": "box (1M)"},
-    "Nails_Staples":                   {"sqft_per_unit": 200, "unit": "box"},
-    "Screws":                          {"sqft_per_unit": 100, "unit": "box"},
+    "Fasteners":                       {"sqft_per_unit": 100, "lf_per_unit": 400, "unit": "box (1M)"},
+    "Insulation_Plates":               {"sqft_per_unit": 100, "lf_per_unit": 400, "unit": "box (1M)"},
+    "Nails_Staples":                   {"sqft_per_unit": 200, "lf_per_unit": 600, "unit": "box"},
+    "Screws":                          {"sqft_per_unit": 100, "lf_per_unit": 400, "unit": "box"},
+    "HVAC_Curb_Detail":                {"per_each": 1, "unit": "EA"},
     "Equipment_Torch":                 {"sqft_per_unit": 100, "unit": "roll"},
     # --- EPDM/TPO specific keys used by AI detail path ---
     "EPDM_Membrane_60mil":             {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
@@ -160,6 +166,22 @@ DETAIL_TYPE_MAP = {
     "pipe_support":            ("each",      "plumbing_vent_count"),
     "opening_cover":           ("each",      "mechanical_unit_count"),
 }
+
+# Typical curb perimeters (LF) for fallback mode when AI doesn't provide dimensions
+CURB_TYPICAL_PERIMETER_LF = {
+    "sleeper_curb": 7,       # ~3' x 0.5' typical → ~7 LF perimeter
+    "mechanical_curb": 52,   # ~18' x 8' typical → ~52 LF perimeter
+}
+
+
+def _material_scope(pricing_key: str) -> str:
+    """Classify a material as 'area', 'linear', or 'discrete' based on COVERAGE_RATES."""
+    cov = COVERAGE_RATES.get(pricing_key, {})
+    if "per_each" in cov:
+        return "discrete"
+    if "lf_per_unit" in cov and "sqft_per_unit" not in cov:
+        return "linear"
+    return "area"
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +491,285 @@ def ft_to_mm(ft: float) -> float:
 def in_to_mm(inches: float) -> float:
     return inches * 25.4
 
+
+# ---------------------------------------------------------------------------
+# Excel Takeoff Overrides (optional)
+# ---------------------------------------------------------------------------
+
+_TAKEOFF_CURB_ROW_MAP = {
+    32: "RTU",
+    33: "Roof_Hatch",
+    34: "Vent_Curb",
+    35: "Sleeper",
+}
+
+_TAKEOFF_VENT_ROW_MAP = {
+    41: "pipe_boot",
+    42: "b_vent",
+    43: "hood_vent",
+    44: "plumb_vent",
+    45: "gum_box",
+    46: "scupper",
+    47: "radon_pipe",
+    48: "drain",
+}
+
+_PERIMETER_TYPE_LOOKUP = {
+    "parapet w/ facing": "parapet_w_facing",
+    "parapet w/o facing": "parapet_no_facing",
+    "interior walls": "interior_wall",
+    "interior wall": "interior_wall",
+    "cant": "cant",
+    "divider w/ facing": "divider_w_facing",
+}
+
+
+def _normalize_text(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_difficulty(value: str | None, default: str = "Normal") -> str:
+    if not value:
+        return default
+    cleaned = str(value).strip().replace(" ", "_").replace("-", "_")
+    return cleaned
+
+
+def load_takeoff_excel(path: str) -> dict:
+    """Load curb/vent/perimeter inputs from the Excel Takeoff sheet."""
+    if openpyxl is None:
+        raise ImportError("openpyxl is required to load Excel takeoff data.")
+
+    wb = openpyxl.load_workbook(path, data_only=True)
+    if "Takeoff" not in wb.sheetnames:
+        raise ValueError("Takeoff sheet not found in Excel workbook.")
+
+    ws = wb["Takeoff"]
+
+    curbs: list[CurbDetail] = []
+    for row_idx, curb_type in _TAKEOFF_CURB_ROW_MAP.items():
+        count = ws.cell(row=row_idx, column=3).value or 0
+        length_ft = ws.cell(row=row_idx, column=4).value or 0
+        width_ft = ws.cell(row=row_idx, column=5).value or 0
+        height_in = ws.cell(row=row_idx, column=6).value or 0
+
+        try:
+            count = int(count)
+        except (ValueError, TypeError):
+            count = 0
+
+        if count > 0:
+            curbs.append(CurbDetail(
+                curb_type=curb_type,
+                count=count,
+                length_in=float(length_ft) * 12.0,
+                width_in=float(width_ft) * 12.0,
+                height_in=float(height_in),
+            ))
+
+    vents: list[VentItem] = []
+    for row_idx, vent_type in _TAKEOFF_VENT_ROW_MAP.items():
+        count = ws.cell(row=row_idx, column=3).value or 0
+        difficulty_raw = ws.cell(row=row_idx, column=4).value
+
+        try:
+            count = int(count)
+        except (ValueError, TypeError):
+            count = 0
+
+        if count > 0:
+            vents.append(VentItem(
+                vent_type=vent_type,
+                count=count,
+                difficulty=_normalize_difficulty(difficulty_raw),
+            ))
+
+    perimeter_sections: list[PerimeterSection] = []
+    for row_idx in range(53, 58):
+        section_name = ws.cell(row=row_idx, column=2).value
+        if not section_name:
+            continue
+        height_in = ws.cell(row=row_idx, column=3).value or 0
+        type_raw = ws.cell(row=row_idx, column=5).value or ""
+        lf = ws.cell(row=row_idx, column=6).value or 0
+        fab_diff = ws.cell(row=row_idx, column=9).value or "Normal"
+        install_diff = ws.cell(row=row_idx, column=10).value or "Normal"
+
+        try:
+            lf = float(lf)
+        except (ValueError, TypeError):
+            lf = 0.0
+
+        if lf > 0:
+            perimeter_sections.append(PerimeterSection(
+                name=str(section_name),
+                perimeter_type=_PERIMETER_TYPE_LOOKUP.get(
+                    _normalize_text(type_raw), "parapet_no_facing"
+                ),
+                height_in=float(height_in or 0),
+                lf=lf,
+                fabrication_difficulty=str(fab_diff or "Normal"),
+                install_difficulty=str(install_diff or "Normal"),
+            ))
+
+    corner_count = ws.cell(row=16, column=6).value
+    try:
+        corner_count = int(corner_count)
+    except (ValueError, TypeError):
+        corner_count = 0
+
+    return {
+        "curbs": curbs,
+        "vents": vents,
+        "perimeter_sections": perimeter_sections,
+        "corner_count": corner_count,
+    }
+
+
+def apply_takeoff_excel(m: "RoofMeasurements", path: str) -> list[str]:
+    """Apply Excel Takeoff overrides to a RoofMeasurements instance."""
+    warnings: list[str] = []
+    if not path:
+        return warnings
+
+    try:
+        data = load_takeoff_excel(path)
+    except Exception as exc:
+        msg = f"Failed to load takeoff Excel '{path}': {exc}"
+        logger.warning(msg)
+        warnings.append(msg)
+        return warnings
+
+    if data.get("curbs"):
+        m.curbs = data["curbs"]
+
+    if data.get("vents"):
+        m.vents = data["vents"]
+
+    if data.get("perimeter_sections"):
+        m.perimeter_sections = data["perimeter_sections"]
+        total_lf = sum(s.lf for s in m.perimeter_sections)
+        if total_lf > 0:
+            m.perimeter_lf = total_lf
+            top_lf = sum(s.lf for s in m.perimeter_sections if s.top_of_parapet)
+            if top_lf > 0:
+                m.parapet_length_lf = top_lf
+
+    if data.get("corner_count"):
+        m.corner_count = data["corner_count"]
+
+    return warnings
+
+
+def _aggregate_curbs(curbs: list[CurbDetail]) -> dict | None:
+    if not curbs:
+        return None
+    total_count = sum(c.count for c in curbs if c.count > 0)
+    if total_count <= 0:
+        return None
+
+    total_perimeter_lf = sum(c.total_perimeter_lf for c in curbs)
+    total_flashing_sqft = sum(c.total_flashing_sqft for c in curbs)
+    total_footprint_sqft = sum(
+        (c.length_in / 12.0) * (c.width_in / 12.0) * c.count for c in curbs
+    )
+    avg_height_in = sum(c.height_in * c.count for c in curbs) / total_count
+
+    return {
+        "count": total_count,
+        "perimeter_lf": total_perimeter_lf,
+        "flashing_sqft": total_flashing_sqft,
+        "footprint_sqft": total_footprint_sqft,
+        "avg_height_in": avg_height_in,
+    }
+
+
+def _select_curb_group_by_area(curbs: list[CurbDetail], pick_largest: bool) -> list[CurbDetail]:
+    groups: dict[str, list[CurbDetail]] = {}
+    for curb in curbs:
+        groups.setdefault(curb.curb_type, []).append(curb)
+
+    if not groups:
+        return []
+
+    def area_for_group(group: list[CurbDetail]) -> float:
+        # Assume consistent sizes per curb type; use first entry
+        ref = group[0]
+        return (ref.length_in / 12.0) * (ref.width_in / 12.0)
+
+    selected = max(groups.values(), key=area_for_group) if pick_largest else min(
+        groups.values(), key=area_for_group
+    )
+    return selected
+
+
+def _detail_geometry_from_excel(detail_type: str, detail_name: str, m: "RoofMeasurements") -> dict | None:
+    if not m.curbs:
+        return None
+
+    dtype = detail_type or ""
+    name_lower = str(detail_name or "").lower()
+
+    if dtype == "mechanical_curb":
+        curbs = [c for c in m.curbs if c.curb_type == "RTU" and c.count > 0]
+        if not curbs:
+            curbs = [c for c in m.curbs if c.count > 0]
+        return _aggregate_curbs(curbs)
+
+    if dtype == "sleeper_curb":
+        curbs = [c for c in m.curbs if c.curb_type == "Sleeper" and c.count > 0]
+        return _aggregate_curbs(curbs)
+
+    if dtype == "opening_cover":
+        curbs = [c for c in m.curbs if c.count > 0]
+        if not curbs:
+            return None
+        if "large" in name_lower:
+            selected = _select_curb_group_by_area(curbs, pick_largest=True)
+        elif "small" in name_lower:
+            selected = _select_curb_group_by_area(curbs, pick_largest=False)
+        else:
+            for preferred in ("Vent_Curb", "Roof_Hatch", "RTU", "Sleeper"):
+                selected = [c for c in curbs if c.curb_type == preferred and c.count > 0]
+                if selected:
+                    break
+            else:
+                selected = curbs
+        return _aggregate_curbs(selected)
+
+    return None
+
+
+def _quantity_from_geometry(
+    coverage: dict,
+    geometry: dict | None,
+    waste: float,
+    dimension_in: float = 0.0,
+) -> tuple[int, str] | None:
+    if not geometry:
+        return None
+    unit = coverage.get("unit", "unit")
+
+    if "lf_per_unit" in coverage and geometry.get("perimeter_lf"):
+        lf_per = float(coverage.get("lf_per_unit") or 1)
+        qty = math.ceil(geometry["perimeter_lf"] * waste / lf_per)
+        return qty, unit
+
+    if "sqft_per_unit" in coverage:
+        sqft_per = float(coverage.get("sqft_per_unit") or 32)
+        area = None
+        if dimension_in > 0 and geometry.get("perimeter_lf"):
+            area = geometry["perimeter_lf"] * (dimension_in / 12.0)
+        elif geometry.get("flashing_sqft"):
+            area = geometry["flashing_sqft"]
+        elif geometry.get("footprint_sqft"):
+            area = geometry["footprint_sqft"]
+
+        if area and area > 0:
+            qty = math.ceil(area * waste / sqft_per)
+            return qty, unit
+
+    return None
 
 # ---------------------------------------------------------------------------
 # System-Specific Material Definitions
@@ -2196,6 +2497,9 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     2. Detail-view scope_quantity (AI read from detail drawing annotations)
     3. DETAIL_TYPE_MAP fallback (global measurements, last resort)
     """
+     #The calculate_detail_takeoff() function in backend/roof_estimator.py massively overestimates costs because it prices every AI-detected detail independently, applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
+     # line 2487 in roof_estimator
+     # Example from the PDF output (26,500 sqft roof, 750 LF perimeter):
     results = {
         "project_measurements": {
             "total_roof_area_sqft": m.total_roof_area_sqft,
@@ -2233,10 +2537,14 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         print("  WARNING: No AI detail analysis found. Use calculate_takeoff() instead.")
         return results
 
-    # --- Prevent double-counting field assemblies ---
-    field_assembly_count = sum(
-        1 for d in all_details if d.get("detail_type") == "field_assembly"
-    )
+    # --- Detect alternative field assemblies (same drawing_ref = alternatives) ---
+    field_assemblies = [d for d in all_details if d.get("detail_type") == "field_assembly"]
+    if len(field_assemblies) > 1:
+        # Group by drawing_ref — details on the same page are alternatives
+        primary_ref = field_assemblies[0].get("_drawing_ref")
+        for fa in field_assemblies[1:]:
+            if fa.get("_drawing_ref") == primary_ref:
+                fa["_is_alternative"] = True
 
     for detail in all_details:
         dtype = detail.get("detail_type", "unknown")
@@ -2280,17 +2588,12 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 base_value = 1
 
             # --- Adjustments for fallback mode ---
-            if dtype == "field_assembly" and field_assembly_count > 1:
-                base_value = base_value / field_assembly_count
-
             if dtype == "expansion_joint":
                 base_value = base_value * 0.25
 
-            if dtype == "sleeper_curb" and mtype == "linear_ft":
-                base_value = base_value * 10
-
-            if dtype == "mechanical_curb" and mtype == "linear_ft":
-                base_value = base_value * 20
+            # Use realistic curb perimeters instead of arbitrary multipliers
+            if dtype in CURB_TYPICAL_PERIMETER_LF and mtype == "linear_ft":
+                base_value = base_value * CURB_TYPICAL_PERIMETER_LF[dtype]
 
         detail_result = {
             "detail_name": dname,
@@ -2303,7 +2606,25 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "detail_cost": 0.0,
         }
 
+        # --- Fix 1: Skip alternative field assemblies (keep for reference only) ---
+        if detail.get("_is_alternative"):
+            detail_result["is_alternative"] = True
+            detail_result["detail_cost"] = 0.0
+            detail_result["note"] = "Alternative assembly — not included in total"
+            results["details"].append(detail_result)
+            continue
+
+        # --- Fix 3: Deduplicate repeated material layers by pricing_key ---
+        seen_pkeys: set[str] = set()
+        deduped_layers: list[dict] = []
         for layer in detail.get("layers", []):
+            pkey = layer.get("pricing_key", "CUSTOM")
+            if pkey != "CUSTOM" and pkey in seen_pkeys:
+                continue  # skip duplicate material
+            seen_pkeys.add(pkey)
+            deduped_layers.append(layer)
+
+        for layer in deduped_layers:
             pkey = layer.get("pricing_key", "CUSTOM")
             material_name = layer.get("material", "?")
             notes = layer.get("notes", "")
@@ -2333,9 +2654,49 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             unit_price = price
             coverage = COVERAGE_RATES.get(pkey, {})
             waste = 1.10  # 10% standard waste factor
+            mat_scope = _material_scope(pkey)
+
+            # ---------------------------------------------------------------
+            # Guard 1: Intrinsic unit items (per_each) must always use the
+            # "each" path, regardless of the parent detail's measurement type.
+            # Without this, a Roof_Drain nested inside a field_assembly detail
+            # (mtype="sqft", base=6777) would compute qty = ceil(6777/32) = 233.
+            # ---------------------------------------------------------------
+            if mat_scope == "discrete":
+                if mtype == "each":
+                    qty = max(1, int(base_value * coverage.get("per_each", 1)))
+                else:
+                    qty = 1
+                unit = coverage.get("unit", "EA")
+
+            # ---------------------------------------------------------------
+            # Guard 2: Completely unknown key (not in COVERAGE_RATES) embedded
+            # in an area/linear detail — avoid the default /32 sqft fallback
+            # which causes massive over-counts for things like HVAC_Curb_Detail.
+            # ---------------------------------------------------------------
+            elif not coverage and mtype in ("sqft", "linear_ft"):
+                qty = 1
+                unit = "EA"
+
+            # ---------------------------------------------------------------
+            # Fix 2: For sqft details, linear materials use perimeter not area
+            # ---------------------------------------------------------------
+            elif mtype == "sqft" and mat_scope == "linear":
+                # Linear materials (flashing, sealant, etc.) inside a sqft detail
+                # only apply at edges/perimeter, NOT across the full area.
+                perimeter = m.perimeter_lf or (4 * math.sqrt(base_value))
+                lf_per = coverage.get("lf_per_unit", 1)
+                qty = math.ceil(perimeter * waste / lf_per)
+                unit = coverage.get("unit", "unit")
+
+            elif mtype == "sqft":
+                # Area materials: apply to full base area (correct behavior)
+                sqft_per = coverage.get("sqft_per_unit", 32)
+                qty = math.ceil(base_value * waste / sqft_per)
+                unit = coverage.get("unit", "unit")
 
             # True-area calculation for linear details
-            if mtype == "linear_ft":
+            elif mtype == "linear_ft":
                 if dimension_in > 0:
                     # Transform 1D linear run into 2D area required for the specific material layer
                     girth_ft = dimension_in / 12.0
@@ -2367,15 +2728,21 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                         qty = max(1, int(base_value))
                         unit = coverage.get("unit", "EA")
 
-            elif mtype == "sqft":
-                sqft_per = coverage.get("sqft_per_unit", 32)
-                qty = math.ceil(base_value * waste / sqft_per)
-                unit = coverage.get("unit", "unit")
-
             else:  # Discrete item logic (each)
                 per_each = coverage.get("per_each", 1)
                 qty = max(1, int(base_value * per_each))
                 unit = coverage.get("unit", "EA")
+
+            # ---------------------------------------------------------------
+            # Fix 5: Sanity cap — for "each" type details, area/linear
+            # materials shouldn't produce enormous quantities (a single
+            # penetration or curb has a small footprint, not the whole roof).
+            # ---------------------------------------------------------------
+            if mtype == "each" and mat_scope == "area" and base_value <= 20:
+                # Cap: assume max ~100 sqft of material per unit for discrete details
+                sqft_per = coverage.get("sqft_per_unit", 32)
+                max_qty = math.ceil(100 * base_value * waste / sqft_per)
+                qty = min(qty, max(1, max_qty))
 
             line_cost = qty * unit_price
 
@@ -2408,29 +2775,8 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         results["details"].append(detail_result)
 
     results["total_material_cost"] = round(grand_total, 2)
-    # Bid summary: materials + labour (1:1 ratio) + overhead (35%) + profit (10%)
-    # Based on Excel Bidmaster formula: COGS = Materials + Labour + Other
-    # Labour ≈ Materials, Overhead = 35% of COGS, Profit = 10% of breakeven
-    labour_cost = round(grand_total * 1.0, 2)      # Labour ~ 1:1 with materials
-    other_costs = round(grand_total * 0.25, 2)      # Other costs ~25% of materials
-    cogs = round(grand_total + labour_cost + other_costs, 2)
-    overhead = round(cogs * 0.35, 2)
-    breakeven = round(cogs + overhead, 2)
-    profit = round(breakeven * 0.10, 2)
-    selling_price = round(breakeven + profit, 2)
-
     results["bid_summary"] = {
         "material_cost": round(grand_total, 2),
-        "labour_cost": labour_cost,
-        "other_costs": other_costs,
-        "total_direct_cost": cogs,
-        "overhead_35pct": overhead,
-        "breakeven": breakeven,
-        "profit_10pct": profit,
-        "total_estimate": selling_price,
-        "per_sqft": round(
-            selling_price / m.total_roof_area_sqft, 2
-        ) if m.total_roof_area_sqft > 0 else 0,
     }
 
     return results
