@@ -2497,9 +2497,10 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     2. Detail-view scope_quantity (AI read from detail drawing annotations)
     3. DETAIL_TYPE_MAP fallback (global measurements, last resort)
     """
-     #The calculate_detail_takeoff() function in backend/roof_estimator.py massively overestimates costs because it prices every AI-detected detail independently, applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
-     # line 2487 in roof_estimator
-     # Example from the PDF output (26,500 sqft roof, 750 LF perimeter):
+    """*The calculate_detail_takeoff() function in backend/roof_estimator.py massively overestimates costs because it prices every AI-detected detail independently
+       *applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
+       *line 2487 in roof_estimator
+       *Example from the PDF output (26,500 sqft roof, 750 LF perimeter):"""
     results = {
         "project_measurements": {
             "total_roof_area_sqft": m.total_roof_area_sqft,
