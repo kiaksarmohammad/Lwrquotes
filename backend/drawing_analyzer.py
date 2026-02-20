@@ -195,21 +195,25 @@ DETAIL_PROMPT = """You are a roofing quantity-takeoff specialist analyzing archi
 
 For EACH detail or section shown on this drawing page, identify:
 1. The detail name and reference number (e.g. "Detail 1", "Section A-A")
-2. The detail type - classify as one of:
+2. The EXACT detail reference ID as printed on the drawing sheet. This is typically
+   shown as a number/sheet format like "3/R3.1" or "1/R3.2" in a circle or label
+   near the detail. Extract ONLY the reference (e.g. "3/R3.1"), not the full name.
+   This ID is used to match this detail to unit labels on the plan view.
+3. The detail type - classify as one of:
    parapet, drain, mechanical_curb, sleeper_curb, penetration_gas,
    penetration_electrical, penetration_plumbing, vent_hood, scupper,
    expansion_joint, curtain_wall, field_assembly, pipe_support, opening_cover
-3. All materials/products shown, listed from BOTTOM to TOP (or inside to outside)
-4. For each material, map it to the closest pricing_key from our database
-5. Whether this detail is measured in: sqft, linear_ft, or each
-6. SCOPE & QUANTITY: Read any dimensions, annotations, or notes on the detail to determine:
+4. All materials/products shown, listed from BOTTOM to TOP (or inside to outside)
+5. For each material, map it to the closest pricing_key from our database
+6. Whether this detail is measured in: sqft, linear_ft, or each
+7. SCOPE & QUANTITY: Read any dimensions, annotations, or notes on the detail to determine:
    - The physical size of the detail (e.g., opening dimensions, curb size, etc.)
    - Any "typical of N" or "N locations" callouts
    - For openings/infills: calculate the area from shown dimensions (e.g., 4'x6' = 24 sqft)
    - For linear details: note the length if dimensioned
    - For penetrations/curbs: note the size (e.g., "6 inch pipe", "48x48 curb")
    If no quantity can be determined from the drawing, set scope_quantity to null.
-7. MATERIAL DIMENSIONS: For each material in a detail, estimate its cross-sectional width, height, or girth (in inches) if it is shown or can be visually estimated from the scale. For example, a parapet plywood face might be 24 inches tall, or a flashing strip might have an 18-inch girth. If unmeasurable, return null.
+8. MATERIAL DIMENSIONS: For each material in a detail, estimate its cross-sectional width, height, or girth (in inches) if it is shown or can be visually estimated from the scale. For example, a parapet plywood face might be 24 inches tall, or a flashing strip might have an 18-inch girth. If unmeasurable, return null.
 
 IMPORTANT classification rules:
 - "field_assembly" is ONLY for the main roof membrane system that covers the entire roof surface
@@ -229,6 +233,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
   "details": [
     {{
       "detail_name": "Detail 1 - Typical Parapet",
+      "detail_ref_id": "1/R3.0",
       "detail_type": "parapet",
       "measurement_type": "linear_ft",
       "scope_quantity": 200,
@@ -276,6 +281,27 @@ Count and identify everything visible on this plan view:
    - Use the drawing scale and visible dimensions to calculate actual quantities
    This is CRITICAL for accurate pricing - each detail needs a real-world quantity.
 
+7. UNIT LABELS & LEGEND — This is CRITICAL for accurate per-unit costing:
+   a) Find the LEGEND on the plan page. It maps letter labels to detail references.
+      Example legend entries:
+        "P  — PIPE PENETRATION, SEE DETAIL 1/R3.2"
+        "HS — HOT STACK PENETRATION, SEE DETAIL 3/R3.1"
+        "D  — TWIN DUCT PENETRATION, SEE DETAIL 4/R3.1"
+        "V  — VENT PENETRATION, SEE 1/R3.1"
+        "M  — MECHANICAL VENT PENETRATION, SEE DETAIL 2/R3.1"
+   b) Scan the plan for EVERY labelled unit symbol. These are typically single or
+      multi-letter codes placed next to or inside units on the plan (e.g., P, HS, D,
+      V, M, PW, GG, JJ, HH). They may appear circled, boxed, or as plain text.
+   c) For EACH labelled unit found:
+      - Count how many instances of that label appear on the plan
+      - Measure each instance's physical footprint using the drawing scale:
+        * Rectangular units: measure width_ft and height_ft → perimeter_lf = 2*(W+H)
+        * Circular units: measure diameter_ft → perimeter_lf = π * diameter
+        * Irregular shapes: estimate the outer perimeter in LF
+      - Note the location of each instance on the plan (e.g., "near grid line 4")
+   d) Use the legend to determine which detail drawing page each label refers to.
+      The detail_ref format should be "Detail N/RX.X" (e.g., "Detail 3/R3.1").
+
 Return ONLY valid JSON (no markdown, no explanation) in this format:
 {{
   "drawing_ref": "the drawing sheet number",
@@ -294,6 +320,55 @@ Return ONLY valid JSON (no markdown, no explanation) in this format:
     "Detail 1/R3.0": {{"count": 1, "measurement": 636, "unit": "linear_ft", "notes": "applies to full parapet perimeter"}},
     "Detail 5/R3.1": {{"count": 3, "measurement": 72, "unit": "sqft", "notes": "3 slab openings, each ~24 sqft"}}
   }},
+  "unit_labels": [
+    {{
+      "label": "HS",
+      "description": "Hot Stack Penetration",
+      "detail_ref": "Detail 3/R3.1",
+      "instances": [
+        {{
+          "instance_id": "HS-1",
+          "location": "center-left area near grid line 4",
+          "shape": "rectangular",
+          "width_ft": 2.5,
+          "height_ft": 3.0,
+          "perimeter_lf": 11.0,
+          "area_sqft": 7.5
+        }},
+        {{
+          "instance_id": "HS-2",
+          "location": "center-right area near grid line 5",
+          "shape": "rectangular",
+          "width_ft": 2.5,
+          "height_ft": 3.0,
+          "perimeter_lf": 11.0,
+          "area_sqft": 7.5
+        }}
+      ],
+      "total_count": 2,
+      "total_perimeter_lf": 22.0,
+      "total_area_sqft": 15.0
+    }},
+    {{
+      "label": "P",
+      "description": "Pipe Penetration",
+      "detail_ref": "Detail 1/R3.2",
+      "instances": [
+        {{
+          "instance_id": "P-1",
+          "location": "north side near grid line 6",
+          "shape": "circular",
+          "width_ft": 0.5,
+          "height_ft": 0.5,
+          "perimeter_lf": 1.57,
+          "area_sqft": 0.2
+        }}
+      ],
+      "total_count": 1,
+      "total_perimeter_lf": 1.57,
+      "total_area_sqft": 0.2
+    }}
+  ],
   "zones": [
     {{
       "name": "zone description",
@@ -611,6 +686,28 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
         "plan_analysis": [],
         "detail_analysis": [],
     }
+    """TODO"""
+    dref:list[dict] = []
+    drefid:list[dict] = []
+    unit_detail_map:list[dict] = []
+    for unit_labels in result["plan_analysis"]:
+        pages = unit_labels.get("unit_labels", [])
+        for unit_label in pages:
+            dref.append(unit_label)
+
+    for details in result["detail_analysis"]:
+        drefidpages = details.get("details", [])
+        for detail in drefidpages:
+            drefid.append(detail)
+    for unit_label in dref:
+        for detail in drefid:
+            if detail["detail_ref_id"] in unit_label["detail_ref"]:
+                unit_detail = detail | unit_label | {"match_status":"matched"}
+                unit_detail_map.append(unit_detail)
+                break
+        else:
+            unit_detail_map.append(unit_label|{"match_status":"unmatched"})
+    result["unit_detail_map"] = unit_detail_map            
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_GEMINI_WORKERS) as executor:
         futures: dict = {}

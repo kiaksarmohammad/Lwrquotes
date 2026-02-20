@@ -228,9 +228,10 @@
 </div>
 
 {% for detail in detail_estimate.details %}
-<div class="detail-card">
+<div class="detail-card{% if detail._is_alternative %} alternative{% endif %}">
     <h3>{{ detail.detail_name }} [{{ detail.detail_type }}]
         <small>(ref: {{ detail.drawing_ref | default("?") }})</small>
+        {% if detail._is_alternative %}<span class="tag" style="background:#f0ad4e;color:#fff;margin-left:8px;">Alternative — not priced</span>{% endif %}
     </h3>
     <p>Measured in: {{ detail.measurement_type }} | Base value: {{ "{:,}".format(detail.base_measurement) }} | Detail cost: {{ detail.detail_cost | currency }}
         {% if detail.quantity_source %}<span class="tag">qty: {{ detail.quantity_source }}</span>{% endif %}

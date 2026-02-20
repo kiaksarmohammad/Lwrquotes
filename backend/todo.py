@@ -1,126 +1,272 @@
-"""Fix Detail Takeoff Overestimation - Match Excel Formulas
-Context
-The calculate_detail_takeoff() function in backend/roof_estimator.py massively overestimates costs because it prices every AI-detected detail independently, applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
-line 2487 in roof_estimator
-Example from the PDF output (26,500 sqft roof, 750 LF perimeter):
+"""
+================================================================================
+  PER-UNIT DETAIL PERIMETERS & UNIT-TO-DETAIL MAPPING
+================================================================================
 
-"NO TAPERED PACKAGE" field_assembly: $237,011 (full 26,500 sqft)
-"WITH TAPERED INSULATION" field_assembly: $334,744 (full 26,500 sqft again!)
-Parapet detail R3.0: $23,522 (full 750 LF)
-Parapet detail R3.2: $13,301 (full 750 LF again!)
-Curtain wall detail R3.2: $23,299 (full 750 LF again!)
-Mech curb Type 1 + Type 2 + Typical: all 3 get full count of 3 units each
-Total detail-based: $726,727 vs standard: $730,194 — but the detail estimate double/triple counts most items.
+GOAL
+----
+Currently, detail calculations use the ENTIRE roof perimeter (or total area) as
+the quantity basis for every detail. In reality, each detail applies to a SPECIFIC
+unit on the plan (e.g., a hot stack penetration "HS" has its own small perimeter,
+not the full 750 LF roof perimeter). We need:
 
-Root Causes
-1. Same-type details not deduplicated (CRITICAL)
-calculate_detail_takeoff (line 2546) iterates ALL details independently. Two field_assembly details each get 26,500 sqft. Three mechanical_curb details each get count=3. Multiple parapet details each get 750 LF. The alternative detection (line 2539-2544) only marks details as alternatives if they share the SAME _drawing_ref page, but alternatives often appear on the same page with different detail numbers.
-
-2. Perimeter girth formulas wrong (line 337-374)
-Excel uses Height + Width + 10 for strip girth. Python uses Height + 16 (missing width dimension entirely). PerimeterSection doesn't even have a width_in field.
-
-Excel formulas (Takeoff G53):
-
-Parapet w/o facing: C53 + D53 + 10 (Height + Width + 10)
-Parapet w/ facing: C53 + D53 + 10 (same)
-Interior Walls: C53 + 6 (Height + 6)
-Cant: 8 + 6 (fixed 14")
-Divider w/ facing: 2*(C53 + D53 + 10) (both sides)
-Python (PerimeterSection.strip_girth_in):
-
-parapet_no_facing: h + 16
-parapet_w_facing: h + 20
-interior_wall: h + 16
-cant: sqrt(2) * h + 12
-divider_w_facing: 2 * h + 12
-3. Metal girth formulas wrong (line 357-374)
-Excel: Parapet w/o facing = Width + 14. Python: Height + 6.
-
-Excel (Takeoff H53):
-
-Parapet w/o facing: D53 + 14 (Width + 14)
-Parapet w/ facing: D53 + C53 + 14 (Width + Height + 14)
-Interior Walls: 6 (fixed)
-Cant: 8 + 4 (fixed 12")
-Divider w/ facing: D53 + 2*C53 + 14
-4. Top-of-parapet formula wrong
-Excel (Takeoff K53):
-
-Parapet w/o facing: D53 + 4 (Width + 4)
-Parapet w/ facing: D53 + 4 (Width + 4)
-Divider w/ facing: D53 + 4
-Cant: 0
-Interior Walls: 0
-Python doesn't use this; it just checks boolean top_of_parapet.
-
-5. Metal flashing qty formula wrong
-Excel (FRS R111): F111 = ROUNDUP(perimeter_lf / 8 / 8, 0) for Galvanized w/ Clips (÷64)
-Excel (FRS R112): F112 = ROUNDUP((metal_sqft / 30) * 1.5, 0) for Prepainted
-Python: qty = ceil(LF * 1.1 / lf_per_unit) — completely different formula.
-
-6. Fabrication hours formula (Takeoff Q53)
-Excel: Q53 = ROUNDUP((F53/8/8) + ((P53/30)*1.5), 0) — combines LF/64 + metal_sqft/30*1.5
-Python: uses fabrication_hours_per_sheet difficulty rates — different approach.
-
-Implementation Plan
-Step 1: Fix calculate_detail_takeoff — Deduplicate same-type details
-File: backend/roof_estimator.py lines 2537-2612
-
-Change: Before iterating details, group by detail_type. For each type, only ONE detail (the first/primary) gets the full base measurement. All others of the same type are marked as alternatives.
+  1. Gemini to identify labelled units on the plan view (HS, P, D, V, M, etc.)
+  2. Gemini to read the legend and map each label → its detail reference
+  3. Gemini to calculate the specific perimeter/dimensions of each unit instance
+  4. Pass this per-unit data to roof_estimator.py so details are costed correctly
 
 
-# Group details by detail_type
-from collections import defaultdict
-details_by_type = defaultdict(list)
-for detail in all_details:
-    dtype = detail.get("detail_type", "unknown")
-    details_by_type[dtype].append(detail)
+================================================================================
+  PHASE 1 — AI EXTRACTION (drawing_analyzer.py)
+================================================================================
 
-# Mark all but the first of each type as alternatives
-for dtype, detail_list in details_by_type.items():
-    if len(detail_list) > 1:
-        for alt in detail_list[1:]:
-            alt["_is_alternative"] = True
-This replaces the current same-page-only alternative detection that misses cross-page alternatives.
+# STEP 1.1: Update PLAN_PROMPT to extract unit labels + legend mapping
+# ----------------------------------------------------------------------
+# File: backend/drawing_analyzer.py, PLAN_PROMPT (line ~251)
 
-Step 2: Fix PerimeterSection — Add width_in dimension
-File: backend/roof_estimator.py lines 325-397
+# What to add to the prompt:
+#   - Instruct Gemini to find ALL labelled units/symbols on the plan view
+#     (letters like "HS", "P", "D", "V", "M", "PW", "GG", "JJ", "HH", etc.)
+#   - For EACH label, record:
+#       * The label text (e.g., "HS")
+#       * How many instances of that label appear on the plan
+#       * The coordinates/location description of each instance
+#   - Instruct Gemini to read the LEGEND on the plan page and map each label
+#     to its detail reference. Example legend entries:
+#       "P  — PIPE PENETRATION, SEE DETAIL 1/R3.2"
+#       "HS — HOT STACK PENETRATION, SEE DETAIL 3/R3.1"
+#       "D  — TWIN DUCT PENETRATION, SEE DETAIL 4/R3.1"
+#       "V  — VENT PENETRATION, SEE 1/R3.1"
+#       "M  — MECHANICAL VENT PENETRATION, SEE DETAIL 2/R3.1"
+#   - For each labelled unit, Gemini should determine the unit's physical size
+#     by measuring from the drawing scale:
+#       * For rectangular units: width and height → perimeter = 2*(W+H)
+#       * For circular units: diameter → perimeter = π * D
+#       * For irregular shapes: estimate the outer perimeter in LF
+#       * Report dimensions in feet and the calculated perimeter in LF
 
-Change: Add width_in field to PerimeterSection dataclass and update all girth formulas to match Excel exactly.
+# Add to the JSON output schema a new key "unit_labels":
+#   "unit_labels": [
+#     {
+#       "label": "HS",
+#       "description": "Hot Stack Penetration",
+#       "detail_ref": "Detail 3/R3.1",
+#       "detail_page": "R3.1",
+#       "instances": [
+#         {
+#           "instance_id": "HS-1",
+#           "location": "center-left area near grid line 4",
+#           "shape": "rectangular",
+#           "width_ft": 2.5,
+#           "height_ft": 3.0,
+#           "perimeter_lf": 11.0,
+#           "area_sqft": 7.5
+#         },
+#         {
+#           "instance_id": "HS-2",
+#           "location": "center-right area near grid line 5",
+#           "shape": "rectangular",
+#           "width_ft": 2.5,
+#           "height_ft": 3.0,
+#           "perimeter_lf": 11.0,
+#           "area_sqft": 7.5
+#         }
+#       ],
+#       "total_count": 2,
+#       "total_perimeter_lf": 22.0,
+#       "total_area_sqft": 15.0
+#     }
+#   ]
 
-Add: width_in: float = 0.0 field
-Fix strip_girth_in: Use h + w + 10 for parapet types
-Fix metal_girth_in: Use w + 14 for parapet_no_facing, w + h + 14 for parapet_w_facing
-Add top_of_parapet_in property for cap-only girth
-Fix wood_face_sqft to use correct formula: IF((strip_girth - 6 - top_of_parapet) / 12 * LF < 0, 0, ...)
-Step 3: Fix metal flashing quantity formulas
-File: backend/roof_estimator.py lines 1498-1547
+# How to do it:
+#   - Add a new section to the PLAN_PROMPT string (after the existing sections)
+#     numbered as section 7 or similar
+#   - Add "unit_labels" to the example JSON output in the prompt
+#   - The prompt should emphasize:
+#       * Read the legend FIRST to understand what each letter means
+#       * Then scan the plan to count and measure each labelled unit
+#       * Use the drawing scale to convert drawn dimensions to real-world feet
+#       * Calculate perimeter for each individual unit instance
+#   - Keep the existing sections (counts, zones, detail_quantities, etc.) intact
 
-Change: Match Excel FRS R111-R112 formulas:
 
-Galvanized: qty = ceil(perimeter_lf / 8 / 8) (each sheet is 8" wide × 8ft long → covers 64 LF equivalent)
-Prepainted: qty = ceil((total_metal_sqft / 30) * 1.5)
-Step 4: Fix fabrication hours formula
-File: backend/roof_estimator.py PerimeterSection class
+# STEP 1.2: Update DETAIL_PROMPT to capture detail reference numbers precisely
+# ------------------------------------------------------------------------------
+# File: backend/drawing_analyzer.py, DETAIL_PROMPT (line ~194)
 
-Change: Match Excel Takeoff Q53: ROUNDUP((LF/8/8) + ((metal_sqft/30)*1.5), 0)
+# What to change:
+#   - Add instruction to capture the exact detail reference ID as shown on the
+#     drawing (e.g., "3/R3.1", "1/R3.2", "4/R3.1") in a new field "detail_ref_id"
+#   - This must match the format used in the plan legend so we can join them
+#   - Currently detail_name captures this loosely (e.g., "Detail 3 - Hot Stack
+#     Penetration") but we need a clean machine-readable reference
 
-Step 5: Fix cap stripping girth (N column)
-File: Excel uses N53 = F53 * ((G53 - K53) / 12) for cap stripping area.
-This means: cap_strip_sqft = LF * ((strip_girth - top_of_parapet) / 12)
+# Add to the detail JSON schema:
+#   "detail_ref_id": "3/R3.1"
 
-Add this as a computed property on PerimeterSection.
+# This is the key that links a detail's material layers to the plan-view units.
 
-Step 6: Update measurements_from_analysis and form handling
-File: backend/roof_estimator.py line 2453 and app.py
 
-If the user's form provides perimeter section width, pass it through. Otherwise default width_in=0 for backward compatibility.
+STEP 1.3: Link unit labels to detail analysis in analyze_drawing()
+-------------------------------------------------------------------
+File: backend/drawing_analyzer.py, analyze_drawing() (line ~590)
 
-Files to Modify
-backend/roof_estimator.py — Main changes (Steps 1-5)
-Verification
-Run the app, upload the same drawings, verify the detail takeoff total is no longer 3-5x inflated
-Check that alternative details show "Alternative assembly — not included in total"
-Verify perimeter girth calculations match Excel for test values (e.g., Height=12, Width=14.5, Parapet w/ facing → strip girth = 12+14.5+10 = 36.5")
-Run python -c "from backend.roof_estimator import *; print('OK')" to verify no import errors
+What to add:
+  - After both plan and detail analyses complete, create a new key in the
+    result dict called "unit_detail_map" that joins unit_labels with details
+  - For each unit_label entry, find the matching detail from detail_analysis
+    by comparing detail_ref (e.g., "Detail 3/R3.1") against detail_ref_id
+  - The map should look like:
+    "unit_detail_map": [
+      {
+        "label": "HS",
+        "description": "Hot Stack Penetration",
+        "detail_ref": "Detail 3/R3.1",
+        "matched_detail_index": 5,
+        "instances": [...],           // from plan
+        "total_perimeter_lf": 22.0,
+        "total_area_sqft": 15.0,
+        "layers": [...]               // from detail analysis
+      }
+    ]
+  - If a unit label can't be matched to any detail, flag it with
+    "match_status": "unmatched" so the estimator knows
+
+
+================================================================================
+  PHASE 2 — ESTIMATOR INTEGRATION (roof_estimator.py)
+================================================================================
+
+STEP 2.1: Add unit_detail_map parsing in calculate_detail_takeoff()
+--------------------------------------------------------------------
+File: backend/roof_estimator.py, calculate_detail_takeoff() (line ~2487)
+
+What to change:
+  - After building plan_detail_qtys, also extract the "unit_detail_map" from
+    the analysis dict
+  - Build a lookup: detail_ref → { total_perimeter_lf, total_area_sqft,
+    total_count, instances[] }
+  - This lookup will be used in the quantity resolution step
+
+How it fits in the existing priority system:
+  The current priority order is:
+    1. Plan-view detail_quantities
+    2. Detail-view scope_quantity
+    3. DETAIL_TYPE_MAP fallback
+
+  Insert the new unit-based data as PRIORITY 0 (highest):
+    0. Unit-specific perimeter from unit_detail_map (NEW — most accurate)
+    1. Plan-view detail_quantities
+    2. Detail-view scope_quantity
+    3. DETAIL_TYPE_MAP fallback
+
+  When a detail's detail_ref_id matches a unit_detail_map entry:
+    - Use total_perimeter_lf as the base_value for linear details
+    - Use total_area_sqft as the base_value for area details
+    - Use total_count as the base_value for discrete (each) details
+    - Set quantity_source = "unit_perimeter"
+
+  This means a hot stack penetration with perimeter 11 LF × 2 instances = 22 LF
+  will use 22 LF instead of the full 750 LF roof perimeter.
+
+
+STEP 2.2: Store per-instance data in detail_result for reporting
+-----------------------------------------------------------------
+File: backend/roof_estimator.py, calculate_detail_takeoff()
+
+What to add:
+  - When a detail is resolved via unit_detail_map, include the instance
+    breakdown in the detail_result dict:
+    detail_result["unit_instances"] = [
+      {"instance_id": "HS-1", "perimeter_lf": 11.0, "location": "..."},
+      {"instance_id": "HS-2", "perimeter_lf": 11.0, "location": "..."}
+    ]
+    detail_result["unit_label"] = "HS"
+  - This allows the UI/report to show per-unit breakdowns
+
+
+STEP 2.3: Update detail_cost_calculation in material_registry
+--------------------------------------------------------------
+File: backend/roof_estimator.py, material_registry loop (line ~2557)
+
+What to change:
+  - Currently, material_registry[pkey]["detail_cost_calculation"] is set to
+    m.total_roof_area_sqft for area scope and m.perimeter_lf for linear scope
+  - This is the global value — it should ONLY be used as the fallback
+  - When unit_detail_map provides a specific perimeter for a detail, that
+    detail's layers should use the unit-specific value, NOT the global one
+  - The per-detail override happens in the layer loop (step 2.1 already
+    handles this via the priority system), so no change needed here IF the
+    quantity_basis resolution correctly uses unit data before falling back
+    to material_registry
+
+
+================================================================================
+  PHASE 3 — FRONTEND DISPLAY
+================================================================================
+
+STEP 3.1: Update drawing_result.html to show unit-level data
+--------------------------------------------------------------
+File: templates/drawing_result.html
+
+What to add:
+  - In the detail breakdown section, when a detail has "unit_instances",
+    show a sub-table or expandable section listing each unit instance:
+      HS-1: 11.0 LF perimeter (center-left near grid 4)
+      HS-2: 11.0 LF perimeter (center-right near grid 5)
+      Total: 22.0 LF
+  - Show the unit_label badge next to the detail name
+  - Show quantity_source = "unit_perimeter" differently from other sources
+    (e.g., green badge) so user can see which details got accurate per-unit
+    measurements vs fallback global measurements
+
+
+================================================================================
+  REFERENCE: PDF DRAWING STRUCTURE (from Roxboro House example)
+================================================================================
+
+Plan page (R2.0) contains:
+  - Labelled units: P (×3), HS (×2), M (×1), D (×1), V (×1), PW (×1)
+  - Legend mapping:
+      P   → Pipe Penetration, Detail 1/R3.2
+      PW  → Pipe Penetration w/ Electrical Conduit, Detail 2/R3.2
+      M   → Mechanical Vent Penetration, Detail 2/R3.1
+      HS  → Hot Stack Penetration, Detail 3/R3.1
+      D   → Twin Duct Penetration, Detail 4/R3.1
+      V   → Vent Penetration, Detail 1/R3.1
+  - Each unit has a visible physical footprint on the plan that can be
+    measured using the drawing scale
+  - Scupper symbols (existing overflow scupper, existing scupper drain)
+  - Parapet cap flashing callout (separate price item)
+
+Detail pages (R3.0, R3.1, R3.2) contain:
+  - Each detail referenced by the legend, with full material layer assemblies
+  - Cross-section views showing all materials from bottom to top
+  - Dimensions for curb heights, flashing widths, insulation thicknesses
+
+The JOIN between plan and detail pages happens via the detail reference:
+  Plan label "HS" → legend says "Detail 3/R3.1" → Detail page R3.1 has
+  "Detail 3 - Hot Stack Penetration" with layers → those layers get costed
+  using the HS unit's measured perimeter (not the full roof perimeter)
+
+
+================================================================================
+  TESTING & VERIFICATION
+================================================================================
+
+1. Upload the Roxboro House PDF and verify:
+   - unit_labels in plan analysis contains HS(×2), P(×3), M(×1), D(×1), V(×1), PW(×1)
+   - Each unit has a measured perimeter (should be small, 5-30 LF range)
+   - Legend mapping correctly links to detail references
+   - detail_ref_id in detail analysis matches the legend references
+
+2. Verify cost calculation uses unit perimeters:
+   - HS detail should use ~22 LF (2 units × ~11 LF each), NOT 750 LF
+   - P detail should use ~15 LF (3 small pipe penetrations), NOT 750 LF
+   - Parapet/wall details should still use full perimeter (they aren't "units")
+
+3. Verify the UI shows per-unit breakdowns with instance IDs and locations
+
+4. Run: python -c "from backend.roof_estimator import *; print('OK')"
+   to confirm no import errors after changes
 """
