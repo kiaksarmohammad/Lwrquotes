@@ -2501,6 +2501,7 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
        *applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
        *line 2487 in roof_estimator
        *Example from the PDF output (26,500 sqft roof, 750 LF perimeter):"""
+
     results = {
         "project_measurements": {
             "total_roof_area_sqft": m.total_roof_area_sqft,
@@ -2533,10 +2534,38 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         for detail in page_data.get("details", []):
             detail["_drawing_ref"] = drawing_ref
             all_details.append(detail)
-
+    #error catcher
     if not all_details:
         print("  WARNING: No AI detail analysis found. Use calculate_takeoff() instead.")
         return results
+    #sorting the materials in their correct sections, 
+    material_registry = {}
+    for detail in all_details:
+        for layer in detail.get("layers", []):
+            pkey = layer.get("pricing_key", "custom")
+            if pkey in material_registry or pkey == "CUSTOM" or pkey == "custom":
+                continue
+            scope = _material_scope(pkey)
+            detail_type = detail.get("detail_type", "unknown")
+            material_registry[pkey] = {
+            "scope": scope,
+            "material_name": layer.get("material", "?"),
+            "detail_type": detail.get("detail_type", "unknown"),
+            "detail_cost_calculation": None
+
+        }
+    for pkey, info in material_registry.items():
+        scope = info["scope"]
+        if scope == "area":
+            info["detail_cost_calculation"] = m.total_roof_area_sqft
+        elif scope == "linear":
+            info["detail_cost_calculation"] = m.perimeter_lf
+                
+        elif scope == "discrete":
+            detail_type = info["detail_type"] 
+            if detail_type in DETAIL_TYPE_MAP:
+                mtype, attr = DETAIL_TYPE_MAP[detail_type]
+                info["detail_cost_calculation"] = getattr(m, attr, 0)
 
     # --- Detect alternative field assemblies (same drawing_ref = alternatives) ---
     field_assemblies = [d for d in all_details if d.get("detail_type") == "field_assembly"]
@@ -2606,159 +2635,6 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "layers": [],
             "detail_cost": 0.0,
         }
-
-        # --- Fix 1: Skip alternative field assemblies (keep for reference only) ---
-        if detail.get("_is_alternative"):
-            detail_result["is_alternative"] = True
-            detail_result["detail_cost"] = 0.0
-            detail_result["note"] = "Alternative assembly — not included in total"
-            results["details"].append(detail_result)
-            continue
-
-        # --- Fix 3: Deduplicate repeated material layers by pricing_key ---
-        seen_pkeys: set[str] = set()
-        deduped_layers: list[dict] = []
-        for layer in detail.get("layers", []):
-            pkey = layer.get("pricing_key", "CUSTOM")
-            if pkey != "CUSTOM" and pkey in seen_pkeys:
-                continue  # skip duplicate material
-            seen_pkeys.add(pkey)
-            deduped_layers.append(layer)
-
-        for layer in deduped_layers:
-            pkey = layer.get("pricing_key", "CUSTOM")
-            material_name = layer.get("material", "?")
-            notes = layer.get("notes", "")
-
-            # Safely parse the AI-extracted cross-sectional dimension
-            raw_dim = layer.get("dimension_in")
-            try:
-                dimension_in = float(raw_dim) if raw_dim is not None else 0.0
-            except (ValueError, TypeError):
-                dimension_in = 0.0
-
-            # Price resolution logic
-            price = _get_price(pkey)
-            if pkey == "CUSTOM" or price == 0.0:
-                detail_result["layers"].append({
-                    "material": material_name,
-                    "pricing_key": pkey,
-                    "quantity": "?",
-                    "unit": "?",
-                    "unit_price": 0.0,
-                    "line_cost": 0.0,
-                    "notes": notes,
-                    "warning": f"No pricing for '{pkey}' - needs manual entry",
-                })
-                continue
-
-            unit_price = price
-            coverage = COVERAGE_RATES.get(pkey, {})
-            waste = 1.10  # 10% standard waste factor
-            mat_scope = _material_scope(pkey)
-
-            # ---------------------------------------------------------------
-            # Guard 1: Intrinsic unit items (per_each) must always use the
-            # "each" path, regardless of the parent detail's measurement type.
-            # Without this, a Roof_Drain nested inside a field_assembly detail
-            # (mtype="sqft", base=6777) would compute qty = ceil(6777/32) = 233.
-            # ---------------------------------------------------------------
-            if mat_scope == "discrete":
-                if mtype == "each":
-                    qty = max(1, int(base_value * coverage.get("per_each", 1)))
-                else:
-                    qty = 1
-                unit = coverage.get("unit", "EA")
-
-            # ---------------------------------------------------------------
-            # Guard 2: Completely unknown key (not in COVERAGE_RATES) embedded
-            # in an area/linear detail — avoid the default /32 sqft fallback
-            # which causes massive over-counts for things like HVAC_Curb_Detail.
-            # ---------------------------------------------------------------
-            elif not coverage and mtype in ("sqft", "linear_ft"):
-                qty = 1
-                unit = "EA"
-
-            # ---------------------------------------------------------------
-            # Fix 2: For sqft details, linear materials use perimeter not area
-            # ---------------------------------------------------------------
-            elif mtype == "sqft" and mat_scope == "linear":
-                # Linear materials (flashing, sealant, etc.) inside a sqft detail
-                # only apply at edges/perimeter, NOT across the full area.
-                perimeter = m.perimeter_lf or (4 * math.sqrt(base_value))
-                lf_per = coverage.get("lf_per_unit", 1)
-                qty = math.ceil(perimeter * waste / lf_per)
-                unit = coverage.get("unit", "unit")
-
-            elif mtype == "sqft":
-                # Area materials: apply to full base area (correct behavior)
-                sqft_per = coverage.get("sqft_per_unit", 32)
-                qty = math.ceil(base_value * waste / sqft_per)
-                unit = coverage.get("unit", "unit")
-
-            # True-area calculation for linear details
-            elif mtype == "linear_ft":
-                if dimension_in > 0:
-                    # Transform 1D linear run into 2D area required for the specific material layer
-                    girth_ft = dimension_in / 12.0
-                    actual_sqft = base_value * girth_ft
-
-                    if "sqft_per_unit" in coverage:
-                        sqft_per = coverage.get("sqft_per_unit", 32)
-                        qty = math.ceil(actual_sqft * waste / sqft_per)
-                        unit = coverage.get("unit", "unit")
-                    elif "lf_per_unit" in coverage:
-                        # Handle strictly linear products (e.g., metal cap flashing)
-                        lf_per = coverage.get("lf_per_unit", 1)
-                        qty = math.ceil(base_value * waste / lf_per)
-                        unit = coverage.get("unit", "unit")
-                    else:
-                        qty = max(1, int(base_value * waste))
-                        unit = coverage.get("unit", "EA")
-                else:
-                    # Fallback heuristic if the vision model failed to extract a dimension
-                    if "sqft_per_unit" in coverage and "lf_per_unit" not in coverage:
-                        sqft_per = coverage.get("sqft_per_unit", 32)
-                        qty = math.ceil(base_value * waste / sqft_per)
-                        unit = coverage.get("unit", "unit")
-                    elif "lf_per_unit" in coverage:
-                        lf_per = coverage.get("lf_per_unit", 1)
-                        qty = math.ceil(base_value * waste / lf_per)
-                        unit = coverage.get("unit", "unit")
-                    else:
-                        qty = max(1, int(base_value))
-                        unit = coverage.get("unit", "EA")
-
-            else:  # Discrete item logic (each)
-                per_each = coverage.get("per_each", 1)
-                qty = max(1, int(base_value * per_each))
-                unit = coverage.get("unit", "EA")
-
-            # ---------------------------------------------------------------
-            # Fix 5: Sanity cap — for "each" type details, area/linear
-            # materials shouldn't produce enormous quantities (a single
-            # penetration or curb has a small footprint, not the whole roof).
-            # ---------------------------------------------------------------
-            if mtype == "each" and mat_scope == "area" and base_value <= 20:
-                # Cap: assume max ~100 sqft of material per unit for discrete details
-                sqft_per = coverage.get("sqft_per_unit", 32)
-                max_qty = math.ceil(100 * base_value * waste / sqft_per)
-                qty = min(qty, max(1, max_qty))
-
-            line_cost = qty * unit_price
-
-            detail_result["layers"].append({
-                "material": material_name,
-                "pricing_key": pkey,
-                "quantity": qty,
-                "unit": unit,
-                "unit_price": round(unit_price, 2),
-                "line_cost": round(line_cost, 2),
-                "notes": notes,
-            })
-            detail_result["detail_cost"] += line_cost
-
-        detail_result["detail_cost"] = round(detail_result["detail_cost"], 2)
 
         # --- Sanity cap: flag details that exceed $100/sqft of roof area ---
         roof_area = m.total_roof_area_sqft or 1
@@ -3374,3 +3250,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+print(all_details)
