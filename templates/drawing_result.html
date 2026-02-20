@@ -256,9 +256,9 @@
                     {% if layer.warning %}<br><small class="warning">{{ layer.warning }}</small>{% endif %}
                     {% if layer.notes %}<br><small class="note">({{ layer.notes }})</small>{% endif %}
                 </td>
-                <td>{% if layer.quantity != "?" %}{{ layer.quantity }} {{ layer.unit }}{% else %}?{% endif %}</td>
+                <td>{% if layer.units_needed is defined %}{{ layer.units_needed }} {{ layer.unit }}{% elif layer.quantity is defined and layer.quantity != "?" %}{{ layer.quantity }} {{ layer.unit }}{% else %}?{% endif %}</td>
                 <td>{{ layer.unit_price | currency }}</td>
-                <td>{% if layer.line_cost > 0 %}{{ layer.line_cost | currency }}{% else %}-{% endif %}</td>
+                <td>{% if layer.layer_cost is defined and layer.layer_cost > 0 %}{{ layer.layer_cost | currency }}{% elif layer.line_cost is defined and layer.line_cost > 0 %}{{ layer.line_cost | currency }}{% else %}-{% endif %}</td>
             </tr>
             {% endfor %}
         </tbody>

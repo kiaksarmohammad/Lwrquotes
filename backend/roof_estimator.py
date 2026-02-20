@@ -16,7 +16,7 @@ import json
 import sys
 import logging
 from dataclasses import dataclass, field
-
+from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 try:
@@ -2566,7 +2566,20 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             if detail_type in DETAIL_TYPE_MAP:
                 mtype, attr = DETAIL_TYPE_MAP[detail_type]
                 info["detail_cost_calculation"] = getattr(m, attr, 0)
+    """TODO"""
+    details_by_type = defaultdict(list)
+    for details in all_details:
+        dtype = details.get("detail_type", "unkown")
+        details_by_type[dtype].append(details)
+    for detail in details_by_type.values():
+        if len(detail)>1:
+            for d in detail[1:]:
+                d["_is_alternative"]=True
 
+        
+        
+        
+        
     # --- Detect alternative field assemblies (same drawing_ref = alternatives) ---
     field_assemblies = [d for d in all_details if d.get("detail_type") == "field_assembly"]
     if len(field_assemblies) > 1:
@@ -2581,6 +2594,7 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         dname = detail.get("detail_name", "Unknown Detail")
         dref = detail.get("_drawing_ref", "?")
         quantity_source = "fallback"
+       
 
         # --- Resolve base_value and mtype using priority order ---
 
@@ -2635,6 +2649,61 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "layers": [],
             "detail_cost": 0.0,
         }
+        if detail.get("_is_alternative"):
+            detail_result["_is_alternative"] = True
+            results["details"].append(detail_result)
+            continue
+        for layer in detail.get("layers", []):
+            #iterates over the pricing keys in the ai output
+            pkey = layer.get("pricing_key", "custom") 
+            if pkey == "custom" or pkey == "CUSTOM": 
+                continue
+            else: 
+                reg = material_registry.get(pkey)
+                if reg and reg["detail_cost_calculation"] is not None:
+                    quantity_basis = reg["detail_cost_calculation"]
+                else:
+                    quantity_basis = base_value
+            cov = COVERAGE_RATES.get(pkey, {})
+            
+            if cov.get("per_each") is not None:#different formulas for the items in coverage_rates
+                units_needed = math.ceil(quantity_basis)
+            elif cov.get("lf_per_unit") is not None and reg is not None and reg["scope"] == "linear":
+                units_needed = (math.ceil(quantity_basis/(cov["lf_per_unit"])))
+            elif cov.get("sqft_per_unit") is not None:
+                units_needed = math.ceil(quantity_basis/cov["sqft_per_unit"])
+            else:
+                print("item has no pricing key falling back to default")
+                units_needed = math.ceil(quantity_basis)
+            unit_price = _get_price(pkey) #getting the price of each unit using pkey lookup
+            if unit_price != None:
+                layer_cost =  units_needed*unit_price
+            else:
+                unit_price = 0
+                layer_cost = 0
+                print("no price could be found for this unit")
+            detail_result["layers"].append({
+                "pricing_key":pkey,
+                "material": layer.get("material", "?"),
+                "scope":reg["scope"] if reg is not None else "unknown",
+                "quantity_basis": round(quantity_basis,1),
+                "units_needed":units_needed,
+                "unit": cov.get("unit", "unit"),
+                "unit_price": round(unit_price,2),
+                "layer_cost": round(layer_cost,2)
+
+            }
+            )
+            detail_result["detail_cost"]+=layer_cost
+        detail_result["detail_cost"] = round(detail_result["detail_cost"], 2)
+            
+            
+
+
+            
+
+
+                 
 
         # --- Sanity cap: flag details that exceed $100/sqft of roof area ---
         roof_area = m.total_roof_area_sqft or 1
