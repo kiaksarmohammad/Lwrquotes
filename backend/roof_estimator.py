@@ -548,13 +548,13 @@ def load_takeoff_excel(path: str) -> dict:
 
     curbs: list[CurbDetail] = []
     for row_idx, curb_type in _TAKEOFF_CURB_ROW_MAP.items():
-        count = ws.cell(row=row_idx, column=3).value or 0
-        length_ft = ws.cell(row=row_idx, column=4).value or 0
-        width_ft = ws.cell(row=row_idx, column=5).value or 0
-        height_in = ws.cell(row=row_idx, column=6).value or 0
+        count_raw = ws.cell(row=row_idx, column=3).value or 0
+        length_ft_raw = ws.cell(row=row_idx, column=4).value or 0
+        width_ft_raw = ws.cell(row=row_idx, column=5).value or 0
+        height_in_raw = ws.cell(row=row_idx, column=6).value or 0
 
         try:
-            count = int(count)
+            count = int(str(count_raw))
         except (ValueError, TypeError):
             count = 0
 
@@ -562,18 +562,18 @@ def load_takeoff_excel(path: str) -> dict:
             curbs.append(CurbDetail(
                 curb_type=curb_type,
                 count=count,
-                length_in=float(length_ft) * 12.0,
-                width_in=float(width_ft) * 12.0,
-                height_in=float(height_in),
+                length_in=float(str(length_ft_raw)) * 12.0,
+                width_in=float(str(width_ft_raw)) * 12.0,
+                height_in=float(str(height_in_raw)),
             ))
 
     vents: list[VentItem] = []
     for row_idx, vent_type in _TAKEOFF_VENT_ROW_MAP.items():
-        count = ws.cell(row=row_idx, column=3).value or 0
-        difficulty_raw = ws.cell(row=row_idx, column=4).value
+        count_raw = ws.cell(row=row_idx, column=3).value or 0
+        difficulty_raw = str(ws.cell(row=row_idx, column=4).value or "")
 
         try:
-            count = int(count)
+            count = int(str(count_raw))
         except (ValueError, TypeError):
             count = 0
 
@@ -589,14 +589,14 @@ def load_takeoff_excel(path: str) -> dict:
         section_name = ws.cell(row=row_idx, column=2).value
         if not section_name:
             continue
-        height_in = ws.cell(row=row_idx, column=3).value or 0
-        type_raw = ws.cell(row=row_idx, column=5).value or ""
-        lf = ws.cell(row=row_idx, column=6).value or 0
-        fab_diff = ws.cell(row=row_idx, column=9).value or "Normal"
-        install_diff = ws.cell(row=row_idx, column=10).value or "Normal"
+        height_in_raw = ws.cell(row=row_idx, column=3).value or 0
+        type_raw = str(ws.cell(row=row_idx, column=5).value or "")
+        lf_raw = ws.cell(row=row_idx, column=6).value or 0
+        fab_diff = str(ws.cell(row=row_idx, column=9).value or "Normal")
+        install_diff = str(ws.cell(row=row_idx, column=10).value or "Normal")
 
         try:
-            lf = float(lf)
+            lf = float(str(lf_raw))
         except (ValueError, TypeError):
             lf = 0.0
 
@@ -606,15 +606,15 @@ def load_takeoff_excel(path: str) -> dict:
                 perimeter_type=_PERIMETER_TYPE_LOOKUP.get(
                     _normalize_text(type_raw), "parapet_no_facing"
                 ),
-                height_in=float(height_in or 0),
+                height_in=float(str(height_in_raw or 0)),
                 lf=lf,
-                fabrication_difficulty=str(fab_diff or "Normal"),
-                install_difficulty=str(install_diff or "Normal"),
+                fabrication_difficulty=fab_diff,
+                install_difficulty=install_diff,
             ))
 
-    corner_count = ws.cell(row=16, column=6).value
+    corner_count_raw = ws.cell(row=16, column=6).value
     try:
-        corner_count = int(corner_count)
+        corner_count = int(str(corner_count_raw))
     except (ValueError, TypeError):
         corner_count = 0
 
