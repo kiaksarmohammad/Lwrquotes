@@ -345,10 +345,17 @@
     </div>
 
     <div class="bid-item">
-        <h3>2. {{ bid.item_2_roofing_assembly_and_flashing.description }}</h3>
-        <p>Material: {{ bid.item_2_roofing_assembly_and_flashing.material_cost | currency }} x {{ bid.item_2_roofing_assembly_and_flashing.labour_multiplier }}</p>
-        <p class="note">{{ bid.item_2_roofing_assembly_and_flashing.note }}</p>
-        <p class="bid-cost">{{ bid.item_2_roofing_assembly_and_flashing.estimated_cost | currency }}</p>
+        <h3>2. {{ bid.item_2_roofing_assembly.description }}</h3>
+        <p>Material: {{ bid.item_2_roofing_assembly.material_cost | currency }} x {{ bid.item_2_roofing_assembly.labour_multiplier }}</p>
+        <p class="note">{{ bid.item_2_roofing_assembly.note }}</p>
+        <p class="bid-cost">{{ bid.item_2_roofing_assembly.estimated_cost | currency }}</p>
+    </div>
+
+    <div class="bid-item">
+        <h3>2b. {{ bid.item_2b_flashing_and_details.description }}</h3>
+        <p>Material: {{ bid.item_2b_flashing_and_details.material_cost | currency }} x {{ bid.item_2b_flashing_and_details.labour_multiplier }}</p>
+        <p class="note">{{ bid.item_2b_flashing_and_details.note }}</p>
+        <p class="bid-cost">{{ bid.item_2b_flashing_and_details.estimated_cost | currency }}</p>
     </div>
 
     <div class="bid-item">
@@ -379,9 +386,11 @@
         <span class="label">Total Project Estimate</span>
         <span class="value">{{ bid.total_estimate | currency }}</span>
     </div>
+    {% if meas.total_roof_area_sqft > 0 %}
     <div class="bid-persqft">
         {{ (bid.total_estimate / meas.total_roof_area_sqft) | currency }} / sqft
     </div>
+    {% endif %}
 </div>
 
 <div class="actions">

@@ -735,7 +735,7 @@ TPO_SPECIFIC_MATERIALS = {
     "TPO_Tuck_Tape": {
         "canonical_name": "Tuck Tape",
         "category": "TPO Accessories",
-        "avg_price": 0.96,
+        "avg_price": 9.60,
         "unit": "roll",
         "sample_descriptions": ["Tuck Tape", "TPO detail tape"],
     },

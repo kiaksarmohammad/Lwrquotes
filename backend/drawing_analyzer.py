@@ -718,7 +718,8 @@ def analyze_drawing(pdf_path: str, client: genai.Client,
 
     for unit_label in dref:
         for detail in drefid:
-            if detail.get("detail_ref_id", "") in unit_label.get("detail_ref", ""):
+            ref_id = detail.get("detail_ref_id", "")
+            if ref_id and ref_id in unit_label.get("detail_ref", ""):
                 unit_detail = detail | unit_label | {"match_status": "matched"}
                 unit_detail_map.append(unit_detail)
                 break

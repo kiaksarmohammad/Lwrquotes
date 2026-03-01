@@ -408,7 +408,7 @@ class PerimeterSection:
         rate = settings.effective_rate
         if rate <= 0:
             return 0.0
-        return (self.lf / 7.5) / rate
+        return self.lf / rate
 
 
 @dataclass
@@ -817,10 +817,6 @@ _SYSTEM_AREA_LAYERS = {
          "EPDM_Membrane_60mil", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
         ("EPDM Bonding Adhesive 90-8-30A",
          "EPDM_Bonding_Adhesive", "pail (5 gal)", 300, "roof_area", 0.05, "roofing"),
-        ("EPDM Primer HP-250",
-         "EPDM_Primer_HP250", "gallon", 50, "roof_area", 0.05, "roofing"),
-        ("EPDM Seam Tape 3\"x100'",
-         "EPDM_Seam_Tape", "roll (100 lf)", 1000, "roof_area", 0.10, "roofing"),
     ],
     "EPDM_Ballasted": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
@@ -833,8 +829,6 @@ _SYSTEM_AREA_LAYERS = {
          "EPDM_Filter_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
         ("Drainage Mat (Sopradrain 15G 6'x50')",
          "EPDM_Drainage_Mat", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
-        ("EPDM Seam Tape 3\"x100'",
-         "EPDM_Seam_Tape", "roll (100 lf)", 1000, "roof_area", 0.10, "roofing"),
     ],
     "TPO_Mechanically_Attached": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
@@ -847,8 +841,6 @@ _SYSTEM_AREA_LAYERS = {
          "Densdeck_Half_Inch", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
         ("TPO Membrane 60 mil (Sure-Weld)",
          "TPO_Membrane", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
-        ("Rhinobond Induction Weld Plates",
-         "TPO_Rhinobond_Plate", "pallet", 4000, "roof_area", 0.05, "roofing"),
         ("TPO Fastening Screws",
          "TPO_Screws", "box", 4000, "roof_area", 0.05, "roofing"),
     ],
@@ -896,13 +888,11 @@ _SYSTEM_CONSUMABLES = {
     ],
     "TPO_Mechanically_Attached": [
         ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
-        ("TPO Tuck Tape", "TPO_Tuck_Tape", "roll", 2, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
         ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
     ],
     "TPO_Fully_Adhered": [
         ("TPO Lap Sealant", "TPO_Lap_Sealant", "tube", 3, "roofing"),
-        ("TPO Tuck Tape", "TPO_Tuck_Tape", "roll", 2, "roofing"),
         ("Polyurethane Sealant (Dymonic 100 / NP1)", "Sealant_General", "tube", 4, "flashing"),
     ],
 }
@@ -913,9 +903,7 @@ _WALL_CONSUMABLES = {
     "SBS": [
         ("Elastocol Adhesive - Wall (parapet strips)", "Adhesive_Elastocol", "pail (19L)", 333, "flashing"),
     ],
-    "EPDM_Fully_Adhered": [
-        ("EPDM Primer HP-250 (wall details)", "EPDM_Primer_HP250", "gallon", 50, "flashing"),
-    ],
+    "EPDM_Fully_Adhered": [],
     "EPDM_Ballasted": [],
     "TPO_Mechanically_Attached": [
         ("TPO Primer (wall details)", "TPO_Primer", "gallon", 100, "flashing"),
@@ -932,6 +920,7 @@ _SYSTEM_META = {
         "spec": "Div 07 52 01 / 07 62 00 / 07 92 00",
         "labour_multiplier": 1.65,
         "labour_note": "Labour typically 1.5-1.8x material for SBS torch-applied",
+        "detail_labour_multiplier": 1.25,
         "mechanical_multiplier": 1.80,
         "include_ballast_note": True,
     },
@@ -940,6 +929,7 @@ _SYSTEM_META = {
         "spec": "Div 07 53 23",
         "labour_multiplier": 1.55,
         "labour_note": "Labour typically 1.4-1.6x material for EPDM fully adhered",
+        "detail_labour_multiplier": 1.20,
         "mechanical_multiplier": 1.80,
         "include_ballast_note": False,
     },
@@ -948,6 +938,7 @@ _SYSTEM_META = {
         "spec": "Div 07 53 23",
         "labour_multiplier": 1.40,
         "labour_note": "Labour typically 1.3-1.5x material for EPDM ballasted",
+        "detail_labour_multiplier": 1.15,
         "mechanical_multiplier": 1.70,
         "include_ballast_note": True,
     },
@@ -956,6 +947,7 @@ _SYSTEM_META = {
         "spec": "Div 07 54 23",
         "labour_multiplier": 1.50,
         "labour_note": "Labour typically 1.4-1.6x material for TPO mechanically attached",
+        "detail_labour_multiplier": 1.20,
         "mechanical_multiplier": 1.80,
         "include_ballast_note": False,
     },
@@ -964,6 +956,7 @@ _SYSTEM_META = {
         "spec": "Div 07 54 23",
         "labour_multiplier": 1.65,
         "labour_note": "Labour typically 1.5-1.8x material for TPO fully adhered",
+        "detail_labour_multiplier": 1.25,
         "mechanical_multiplier": 1.80,
         "include_ballast_note": False,
     },
@@ -1378,7 +1371,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
 
     # Gravel ballast (Excel: FRS R44) — BUR vs EPDM type
     if meta["include_ballast_note"]:
-        squares = roof_area / 100.0
+        squares = m.effective_ballast_area / 100.0
         if m.ballast_type == "EPDM":
             ballast_qty = math.ceil(squares / 3)
             ballast_label = "EPDM Gravel Ballast"
@@ -1500,7 +1493,10 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         total_cap_lf = sum(
             s.lf for s in m.perimeter_sections if s.top_of_parapet and s.lf > 0
         )
-        total_counter_lf = sum(s.lf for s in m.perimeter_sections if s.lf > 0)
+        total_counter_lf = sum(
+            s.lf for s in m.perimeter_sections
+            if s.lf > 0 and s.metal_girth_in > 0
+        )
         total_wood_lf = parapet_lf
         total_ply_lf = parapet_lf
 
@@ -1696,9 +1692,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     if not m.curbs:
         for name, pkey, unit, count_attr, mult, bid_grp in [
             ("Mechanical Unit Curb Flashing",
-             "Flashing_General", "EA", "mechanical_unit_count", 4, "mechanical"),
+             "Flashing_General", "EA", "mechanical_unit_count", 2, "mechanical"),
             ("Sleeper Curb Flashing",
-             "Flashing_General", "EA", "sleeper_curb_count", 2, "mechanical"),
+             "Flashing_General", "EA", "sleeper_curb_count", 1, "mechanical"),
         ]:
             base_count = getattr(m, count_attr, 0)
             qty = base_count * mult
@@ -1789,9 +1785,11 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
                 firetape_lf = parapet_lf
             else:
                 # Densdeck quantity from area materials (if coverboard enabled)
+                # Must match only actual coverboard entries, not tapered ISO insulation
                 densdeck_qty = 0
                 for am in results["area_materials"]:
-                    if "Densdeck" in am.get("name", "") or "Soprasmart" in am.get("name", ""):
+                    name = am.get("name", "")
+                    if "Densdeck Coverboard" in name or "Soprasmart ISO HD" in name:
                         densdeck_qty = am.get("quantity", 0)
                         break
                 firetape_lf = (densdeck_qty * 16) + 8 + parapet_lf
@@ -1847,9 +1845,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             })
             total_roofing_cost += fleece_cost
 
-        # PMMA Primer: ROUNDUP(perim_section_count / 200, 0) pails
-        if perim_section_count > 0:
-            pmma_primer_qty = max(math.ceil(perim_section_count / 200), 1)
+        # PMMA Primer: ROUNDUP(parapet_lf / 200, 0) pails
+        if parapet_lf > 0:
+            pmma_primer_qty = max(math.ceil(parapet_lf / 200), 1)
             pmma_primer_price = _get_price("Primer")
             pmma_primer_cost = pmma_primer_qty * pmma_primer_price
             results["consumables"].append({
@@ -1897,8 +1895,8 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             })
             total_flashing_cost += tuff_cost
 
-        # Gar-Mesh: ((perim/3)*3 + 4*curbs) / 150 * 1.1
-        gar_mesh_area = ((parapet_lf / 3) * 3 + (4 * total_curbs)) / 150 * 1.1
+        # Gar-Mesh: (parapet_lf + 4*curbs) / 150 * 1.1
+        gar_mesh_area = (parapet_lf + (4 * total_curbs)) / 150 * 1.1
         gar_mesh_rolls = max(math.ceil(gar_mesh_area), 1)
         gar_mesh_price = _get_price("Gar_Mesh")
         gar_mesh_cost = gar_mesh_rolls * gar_mesh_price
@@ -2213,8 +2211,8 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # ===================================================================
     # BID SUMMARY
     # ===================================================================
-    total_roofing_plus_flashing = total_roofing_cost + total_flashing_cost
     labour_mult = meta["labour_multiplier"]
+    detail_mult = meta["detail_labour_multiplier"]
     mech_mult = meta["mechanical_multiplier"]
 
     results["bid_summary"] = {
@@ -2222,14 +2220,21 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "description": "General Requirements (Div 01)",
             "note": "Mobilization, site protection, cleanup - typically 8-12% of roofing",
             "estimated_pct": 0.10,
-            "estimated_cost": round(total_roofing_plus_flashing * 0.10, 2),
+            "estimated_cost": round(total_roofing_cost * 0.10, 2),
         },
-        "item_2_roofing_assembly_and_flashing": {
-            "description": f"Roofing Assembly + Metal Flashing ({meta['spec']})",
-            "material_cost": round(total_roofing_plus_flashing, 2),
+        "item_2_roofing_assembly": {
+            "description": f"Roofing Assembly ({meta['spec']})",
+            "material_cost": round(total_roofing_cost, 2),
             "labour_multiplier": labour_mult,
             "note": meta["labour_note"],
-            "estimated_cost": round(total_roofing_plus_flashing * labour_mult, 2),
+            "estimated_cost": round(total_roofing_cost * labour_mult, 2),
+        },
+        "item_2b_flashing_and_details": {
+            "description": "Flashing & Detail Work (metal, blocking, consumables)",
+            "material_cost": round(total_flashing_cost, 2),
+            "labour_multiplier": detail_mult,
+            "note": f"Detail labour typically {detail_mult:.2f}x material",
+            "estimated_cost": round(total_flashing_cost * detail_mult, 2),
         },
         "item_3_mechanical_support": {
             "description": "Mechanical Support (curbs, RTU flashings)",
@@ -2247,8 +2252,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         ),
         "total_other_cost": round(total_other_cost, 2),
         "total_estimate": round(
-            total_roofing_plus_flashing * 0.10 +
-            total_roofing_plus_flashing * labour_mult +
+            total_roofing_cost * 0.10 +
+            total_roofing_cost * labour_mult +
+            total_flashing_cost * detail_mult +
             total_mechanical_cost * mech_mult +
             total_other_cost,
             2
@@ -2404,11 +2410,17 @@ def print_estimate(est: dict) -> None:
     print(f"     ({item1['note']})")
     print(f"     Estimated: ${item1['estimated_cost']:>12,.2f}")
 
-    item2 = bid["item_2_roofing_assembly_and_flashing"]
+    item2 = bid["item_2_roofing_assembly"]
     print(f"\n  2. {item2['description']}")
     print(f"     Material: ${item2['material_cost']:>12,.2f}")
     print(f"     x {item2['labour_multiplier']}  ({item2['note']})")
     print(f"     Estimated: ${item2['estimated_cost']:>12,.2f}")
+
+    item2b = bid["item_2b_flashing_and_details"]
+    print(f"\n  2b. {item2b['description']}")
+    print(f"      Material: ${item2b['material_cost']:>12,.2f}")
+    print(f"      x {item2b['labour_multiplier']}  ({item2b['note']})")
+    print(f"      Estimated: ${item2b['estimated_cost']:>12,.2f}")
 
     item3 = bid["item_3_mechanical_support"]
     print(f"\n  3. {item3['description']}")
@@ -2495,10 +2507,8 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     2. Detail-view scope_quantity (AI read from detail drawing annotations)
     3. DETAIL_TYPE_MAP fallback (global measurements, last resort)
     """
-    """*The calculate_detail_takeoff() function in backend/roof_estimator.py massively overestimates costs because it prices every AI-detected detail independently
-       *applying the full roof area or perimeter to each. The reference Excel (231260__THE AMPERSAND 2026.xlsm) uses a single consolidated material list where each material appears once. This causes costs to be 3-5x what they should be.
-       *line 2487 in roof_estimator
-       *Example from the PDF output (26,500 sqft roof, 750 LF perimeter):"""
+    """Each material is costed exactly once across all details (consolidated
+    material list), matching the reference Excel approach."""
 
     results = {
         "project_measurements": {
@@ -2544,7 +2554,11 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     if not all_details:
         print("  WARNING: No AI detail analysis found. Use calculate_takeoff() instead.")
         return results
-    #sorting the materials in their correct sections, 
+    # Build material registry: each pricing key is registered once with its
+    # scope (area/linear/discrete) and the detail_type it first appeared in.
+    # The quantity basis depends on BOTH the material scope AND the detail
+    # context — an area-scoped material in a parapet detail should use the
+    # parapet strip area, NOT the full roof area.
     material_registry = {}
     for detail in all_details:
         for layer in detail.get("layers", []):
@@ -2554,32 +2568,65 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             scope = _material_scope(pkey)
             detail_type = detail.get("detail_type", "unknown")
             material_registry[pkey] = {
-            "scope": scope,
-            "material_name": layer.get("material", "?"),
-            "detail_type": detail.get("detail_type", "unknown"),
-            "detail_cost_calculation": None
+                "scope": scope,
+                "material_name": layer.get("material", "?"),
+                "detail_type": detail_type,
+                "detail_cost_calculation": None,
+            }
 
-        }
+    # Assign quantity basis using detail_type + scope to pick the RIGHT area.
+    # Detail types that cover the whole roof field use total_roof_area_sqft.
+    # Detail types that cover walls/parapets use total_strip_sqft.
+    # Discrete detail types use their specific count from DETAIL_TYPE_MAP.
+    _DETAIL_AREA_OVERRIDES = {
+        "parapet":       "total_strip_sqft",
+        "curtain_wall":  "total_strip_sqft",
+    }
+
     for pkey, info in material_registry.items():
         scope = info["scope"]
+        detail_type = info["detail_type"]
+
         if scope == "area":
-            info["detail_cost_calculation"] = m.total_roof_area_sqft
+            # Check if this detail type should use a smaller area
+            area_attr = _DETAIL_AREA_OVERRIDES.get(detail_type)
+            if area_attr:
+                info["detail_cost_calculation"] = getattr(m, area_attr, 0)
+            elif detail_type == "field_assembly":
+                info["detail_cost_calculation"] = m.total_roof_area_sqft
+            else:
+                # For curbs, drains, penetrations etc — don't apply area-based
+                # costing; leave as None so it falls back to base_value
+                info["detail_cost_calculation"] = None
+
         elif scope == "linear":
-            info["detail_cost_calculation"] = m.perimeter_lf
-                
+            # Linear materials use the perimeter relevant to their detail type
+            if detail_type in ("parapet", "curtain_wall", "expansion_joint"):
+                info["detail_cost_calculation"] = m.parapet_length_lf
+            elif detail_type == "field_assembly":
+                info["detail_cost_calculation"] = m.perimeter_lf
+            else:
+                # For curbs, drains etc — leave as None for base_value fallback
+                info["detail_cost_calculation"] = None
+
         elif scope == "discrete":
-            detail_type = info["detail_type"] 
             if detail_type in DETAIL_TYPE_MAP:
                 mtype, attr = DETAIL_TYPE_MAP[detail_type]
                 info["detail_cost_calculation"] = getattr(m, attr, 0)
-    details_by_type = defaultdict(list)
-    for details in all_details:
-        dtype = details.get("detail_type", "unkown")
-        details_by_type[dtype].append(details)
-    for detail in details_by_type.values():
-        if len(detail)>1:
-            for d in detail[1:]:
-                d["_is_alternative"]=True
+    # Mark duplicate details (same type AND same ref_id) as alternatives.
+    # Different details of the same type (e.g. two different curb conditions) are
+    # legitimately distinct and must all be costed.
+    details_by_type_and_ref = defaultdict(list)
+    for detail in all_details:
+        dtype = detail.get("detail_type", "unknown")
+        ref_id = detail.get("detail_ref_id", "")
+        key = (dtype, ref_id) if ref_id else None
+        if key:
+            details_by_type_and_ref[key].append(detail)
+    for group in details_by_type_and_ref.values():
+        if len(group) > 1:
+            for d in group[1:]:
+                d["_is_alternative"] = True
 
         
         
@@ -2593,6 +2640,12 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         for fa in field_assemblies[1:]:
             if fa.get("_drawing_ref") == primary_ref:
                 fa["_is_alternative"] = True
+
+    # Track which pricing keys have already been costed to prevent
+    # the same material being counted multiple times across details.
+    # Each material should appear exactly once in the consolidated estimate,
+    # matching how the reference Excel uses a single material list.
+    costed_pkeys: set[str] = set()
 
     for detail in all_details:
         dtype = detail.get("detail_type", "unknown")
@@ -2676,68 +2729,86 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             results["details"].append(detail_result)
             continue
         for layer in detail.get("layers", []):
-            #iterates over the pricing keys in the ai output
-            pkey = layer.get("pricing_key", "custom") 
-            if pkey == "custom" or pkey == "CUSTOM": 
+            pkey = layer.get("pricing_key", "custom")
+            if pkey == "custom" or pkey == "CUSTOM":
                 continue
-            else: 
-                reg = material_registry.get(pkey)
-                if reg and reg["detail_cost_calculation"] is not None:
-                    quantity_basis = reg["detail_cost_calculation"]
+
+            # --- Deduplication: each material is costed only once ---
+            # If this pricing key was already costed in a previous detail,
+            # record it as a layer for reference but with zero cost.
+            if pkey in costed_pkeys:
+                detail_result["layers"].append({
+                    "pricing_key": pkey,
+                    "material": layer.get("material", "?"),
+                    "scope": "already_costed",
+                    "quantity_basis": 0,
+                    "units_needed": 0,
+                    "unit": COVERAGE_RATES.get(pkey, {}).get("unit", "unit"),
+                    "unit_price": 0,
+                    "layer_cost": 0,
+                    "note": "Already costed in another detail",
+                })
+                continue
+
+            costed_pkeys.add(pkey)
+
+            reg = material_registry.get(pkey)
+            cov = COVERAGE_RATES.get(pkey, {})
+            mat_scope = reg["scope"] if reg else "unknown"
+
+            # --- Quantity basis priority ---
+            # 1. Use the AI's detail-specific base_value when the AI
+            #    actually measured this detail (not a global fallback).
+            # 2. Fall back to material_registry's pre-computed value
+            #    (which is now context-aware per detail_type).
+            # 3. Last resort: base_value from DETAIL_TYPE_MAP fallback.
+            if quantity_source in ("unit_perimeter", "plan_view", "detail_drawing"):
+                # AI provided a specific measurement for this detail.
+                # For area-scoped materials in a linear detail (e.g. membrane
+                # strip on a parapet), convert LF to sqft using parapet height.
+                if mat_scope == "area" and mtype == "linear_ft":
+                    quantity_basis = base_value * m.parapet_height_ft
+                elif mat_scope == "linear" and mtype == "sqft":
+                    # Unlikely but handle: linear material with sqft measurement
+                    quantity_basis = base_value
                 else:
                     quantity_basis = base_value
-            cov = COVERAGE_RATES.get(pkey, {})
-            
-            if cov.get("per_each") is not None:#different formulas for the items in coverage_rates
+            elif reg and reg["detail_cost_calculation"] is not None:
+                quantity_basis = reg["detail_cost_calculation"]
+            else:
+                quantity_basis = base_value
+
+            if cov.get("per_each") is not None:
                 units_needed = math.ceil(quantity_basis)
-            elif cov.get("lf_per_unit") is not None and reg is not None and reg["scope"] == "linear":
-                units_needed = (math.ceil(quantity_basis/(cov["lf_per_unit"])))
+            elif cov.get("lf_per_unit") is not None and mat_scope == "linear":
+                units_needed = math.ceil(quantity_basis / cov["lf_per_unit"])
             elif cov.get("sqft_per_unit") is not None:
-                units_needed = math.ceil(quantity_basis/cov["sqft_per_unit"])
+                units_needed = math.ceil(quantity_basis / cov["sqft_per_unit"])
             else:
                 print("item has no pricing key falling back to default")
                 units_needed = math.ceil(quantity_basis)
-            unit_price = _get_price(pkey) #getting the price of each unit using pkey lookup
-            if unit_price != None:
-                layer_cost =  units_needed*unit_price
+
+            unit_price = _get_price(pkey)
+            if unit_price is not None:
+                layer_cost = units_needed * unit_price
             else:
                 unit_price = 0
                 layer_cost = 0
                 print("no price could be found for this unit")
+
             detail_result["layers"].append({
-                "pricing_key":pkey,
+                "pricing_key": pkey,
                 "material": layer.get("material", "?"),
-                "scope":reg["scope"] if reg is not None else "unknown",
-                "quantity_basis": round(quantity_basis,1),
-                "units_needed":units_needed,
+                "scope": mat_scope,
+                "quantity_basis": round(quantity_basis, 1),
+                "units_needed": units_needed,
                 "unit": cov.get("unit", "unit"),
-                "unit_price": round(unit_price,2),
-                "layer_cost": round(layer_cost,2)
+                "unit_price": round(unit_price, 2),
+                "layer_cost": round(layer_cost, 2),
+            })
+            detail_result["detail_cost"] += layer_cost
 
-            }
-            )
-            detail_result["detail_cost"]+=layer_cost
         detail_result["detail_cost"] = round(detail_result["detail_cost"], 2)
-            
-            
-
-
-            
-
-
-                 
-
-        # --- Sanity cap: flag details that exceed $100/sqft of roof area ---
-        roof_area = m.total_roof_area_sqft or 1
-        max_reasonable_detail_cost = roof_area * 100  # $100/sqft is extremely high
-        if detail_result["detail_cost"] > max_reasonable_detail_cost:
-            detail_result["warning"] = (
-                f"Detail cost ${detail_result['detail_cost']:,.0f} exceeds sanity cap "
-                f"(${max_reasonable_detail_cost:,.0f}). Quantity source: {quantity_source}. "
-                f"Capping at ${max_reasonable_detail_cost:,.0f}."
-            )
-            detail_result["detail_cost_uncapped"] = detail_result["detail_cost"]
-            detail_result["detail_cost"] = round(max_reasonable_detail_cost, 2)
 
         grand_total += detail_result["detail_cost"]
         results["details"].append(detail_result)
