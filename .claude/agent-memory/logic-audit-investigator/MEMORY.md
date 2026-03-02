@@ -36,6 +36,23 @@
 **MINOR: Soprasmart 24 vs 32 sqft/sheet; Vapour barrier 5% vs 10% waste**
 **Low: sbs_base_type defined but never used in calculate_takeoff**
 
+### Detail Takeoff Overestimation Bugs (2026-03-02)
+
+**CRITICAL: Substring match in plan_detail_qtys (lines 2783-2788, 3161-3167)**
+- "Detail 1" in "Detail 10/R3.0" = TRUE; small details inherit large quantities
+- Same bug in both calculate_detail_takeoff() and join_takeoff_data()
+- Fix: exact match on detail number, not substring `in`
+
+**MODERATE: parapet_height_ft applied to all linear-to-area conversions (line 2886-2887)**
+- Curbs/expansion joints use parapet height instead of own height
+- 1.5x-3x overestimation for curb area-scope materials
+
+**MODERATE: join_takeoff_data() lacks costed_pkeys dedup (lines 3148-3282)**
+- Same material priced N times for N details; no consolidation
+
+**VERIFIED: CURB_TYPICAL_PERIMETER_LF multiplier (line 2817-2818) is dead code**
+- DETAIL_TYPE_MAP sets mtype="each" for curbs, guard requires "linear_ft"
+
 ### Pricing/Coverage Audit (2026-03-02) - see pricing-audit.md
 
 ## Verified Correct (2026-03-02)

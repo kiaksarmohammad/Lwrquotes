@@ -15,6 +15,7 @@ import math
 import json
 import sys
 import logging
+import re
 from dataclasses import dataclass, field
 from collections import defaultdict
 logger = logging.getLogger(__name__)
@@ -222,6 +223,20 @@ DISCRETE_AI_COUNT_KEY: dict[str, str | None] = {
 CURB_TYPICAL_PERIMETER_LF = {
     "sleeper_curb": 7,       # ~3' x 0.5' typical → ~7 LF perimeter
     "mechanical_curb": 52,   # ~18' x 8' typical → ~52 LF perimeter
+}
+
+# Typical strip/flashing heights (ft) used to convert LF → sqft for area-scope
+# materials in non-parapet details.  Parapet/curtain_wall use m.parapet_height_ft
+# dynamically; all other detail types use these type-specific defaults.
+_DETAIL_STRIP_HEIGHT_FT: dict[str, float] = {
+    "mechanical_curb": 1.5,   # 18" typical curb height
+    "sleeper_curb":    1.0,   # 12" typical sleeper
+    "expansion_joint": 0.5,   # 6" joint cover width
+    "scupper":         1.0,   # 12" flashing return
+    "drain":           0.5,   # small flashing collar
+    "pipe_support":    1.0,
+    "vent_hood":       1.0,
+    "opening_cover":   1.0,
 }
 
 
@@ -2663,6 +2678,8 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     # parapet strip area, NOT the full roof area.
     material_registry = {}
     for detail in all_details:
+        if detail.get("detail_type") == "slope_plan":
+            continue
         for layer in detail.get("layers", []):
             pkey = layer.get("pricing_key", "custom")
             if pkey in material_registry or pkey == "CUSTOM" or pkey == "custom":
@@ -2755,6 +2772,9 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
 
     for detail in all_details:
         dtype = detail.get("detail_type", "unknown")
+        # Slope plans are informational drawings only — skip from takeoff
+        if dtype == "slope_plan":
+            continue
         dname = detail.get("detail_name", "Unknown Detail")
         dref = detail.get("_drawing_ref", "?")
         quantity_source = "fallback"
@@ -2778,14 +2798,29 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
 
         else:
             # Priority 1: Plan-view detail_quantities
-            # Try matching by detail name pattern (e.g., "Detail 5/R3.1")
             plan_qty = None
-            detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
-            for ref_key, qty_info in plan_detail_qtys.items():
-                # Match "Detail 5/R3.1" against plan keys like "Detail 5/R3.1"
-                if detail_num.lower() in ref_key.lower() or ref_key.lower() in f"{detail_num}/{dref}".lower():
-                    plan_qty = qty_info
-                    break
+
+            # Step A: exact match on detail_ref_id (e.g. "3/R3.1" → "Detail 3/R3.1")
+            if detail_ref_id:
+                exact_key = f"Detail {detail_ref_id}"
+                for ref_key, qty_info in plan_detail_qtys.items():
+                    if ref_key.lower() == exact_key.lower():
+                        plan_qty = qty_info
+                        break
+
+            # Step B: fall back to extracting the numeric id from the detail name
+            # and comparing it token-by-token against plan keys — avoids the
+            # substring bug where "Detail 1" matches "Detail 10/R3.0".
+            if plan_qty is None:
+                detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
+                name_match = re.match(r'detail\s+(\S+)', detail_num.strip(), re.IGNORECASE)
+                detail_id = name_match.group(1) if name_match else None
+                if detail_id:
+                    for ref_key, qty_info in plan_detail_qtys.items():
+                        plan_match = re.match(r'detail\s+(\S+)', ref_key.strip(), re.IGNORECASE)
+                        if plan_match and plan_match.group(1).lower() == detail_id.lower():
+                            plan_qty = qty_info
+                            break
 
             if plan_qty and plan_qty.get("measurement", 0) > 0:
                 base_value = float(plan_qty["measurement"])
@@ -2882,9 +2917,19 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             elif quantity_source in ("unit_perimeter", "plan_view", "detail_drawing"):
                 # AI provided a specific measurement for this detail.
                 # For area-scoped materials in a linear detail (e.g. membrane
-                # strip on a parapet), convert LF to sqft using parapet height.
+                # strip on a parapet), convert LF → sqft using a detail-type-
+                # specific height rather than always using parapet_height_ft.
                 if mat_scope == "area" and mtype == "linear_ft":
-                    quantity_basis = base_value * m.parapet_height_ft
+                    if dtype in ("parapet", "curtain_wall"):
+                        strip_height_ft = m.parapet_height_ft
+                    else:
+                        # Use AI layer dimension if present, else type default
+                        dim_in = layer.get("dimension_in")
+                        if dim_in and dim_in > 0:
+                            strip_height_ft = dim_in / 12.0
+                        else:
+                            strip_height_ft = _DETAIL_STRIP_HEIGHT_FT.get(dtype, 1.0)
+                    quantity_basis = base_value * strip_height_ft
                 elif mat_scope == "linear" and mtype == "sqft":
                     # Unlikely but handle: linear material with sqft measurement
                     quantity_basis = base_value
@@ -2893,7 +2938,18 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             elif reg and reg["detail_cost_calculation"] is not None:
                 quantity_basis = reg["detail_cost_calculation"]
             else:
-                quantity_basis = base_value
+                # In fallback mode base_value may be in LF (e.g. expansion_joint).
+                # Apply the same type-aware height conversion as the AI-quantity path
+                # so area-scope materials get sqft, not raw LF.
+                if mat_scope == "area" and mtype == "linear_ft":
+                    if dtype in ("parapet", "curtain_wall"):
+                        strip_h = m.parapet_height_ft
+                    else:
+                        dim_in = layer.get("dimension_in")
+                        strip_h = (dim_in / 12.0) if (dim_in and dim_in > 0) else _DETAIL_STRIP_HEIGHT_FT.get(dtype, 1.0)
+                    quantity_basis = base_value * strip_h
+                else:
+                    quantity_basis = base_value
 
             _waste = 1.10  # 10% waste — aligns with join_takeoff_data() and calculate_takeoff()
             if cov.get("per_each") is not None:
@@ -3145,8 +3201,14 @@ def join_takeoff_data(
         1 for d in all_details if d.get("detail_type") == "field_assembly"
     )
 
+    # Track priced keys to ensure each material is charged exactly once,
+    # matching the consolidated-material-list approach in calculate_detail_takeoff.
+    costed_pkeys_j: set[str] = set()
+
     for detail in all_details:
         dtype: str = detail.get("detail_type", "unknown")
+        if dtype == "slope_plan":
+            continue
         dname: str = detail.get("detail_name", "Unknown Detail")
         dref: str = detail.get("_drawing_ref", "?")
 
@@ -3158,13 +3220,29 @@ def join_takeoff_data(
         mtype: str = detail.get("measurement_type", "each")
 
         # Priority 1: plan_detail_quantities
-        detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
         plan_qty: dict | None = None
-        for ref_key, qty_info in plan_detail_qtys.items():
-            if (detail_num.lower() in ref_key.lower()
-                    or ref_key.lower() in f"{detail_num}/{dref}".lower()):
-                plan_qty = qty_info
-                break
+        detail_ref_id_j: str = detail.get("detail_ref_id", "")
+
+        # Step A: exact match on detail_ref_id (e.g. "3/R3.1" → "Detail 3/R3.1")
+        if detail_ref_id_j:
+            exact_key_j = f"Detail {detail_ref_id_j}"
+            for ref_key, qty_info in plan_detail_qtys.items():
+                if ref_key.lower() == exact_key_j.lower():
+                    plan_qty = qty_info
+                    break
+
+        # Step B: token-exact match on detail name number — avoids substring
+        # false-positives where "Detail 1" would match "Detail 10/R3.0".
+        if plan_qty is None:
+            detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
+            name_match_j = re.match(r'detail\s+(\S+)', detail_num.strip(), re.IGNORECASE)
+            detail_id_j = name_match_j.group(1) if name_match_j else None
+            if detail_id_j:
+                for ref_key, qty_info in plan_detail_qtys.items():
+                    plan_match_j = re.match(r'detail\s+(\S+)', ref_key.strip(), re.IGNORECASE)
+                    if plan_match_j and plan_match_j.group(1).lower() == detail_id_j.lower():
+                        plan_qty = qty_info
+                        break
 
         if plan_qty and plan_qty.get("measurement", 0) > 0:
             base_value = float(plan_qty["measurement"])
@@ -3207,6 +3285,12 @@ def join_takeoff_data(
                 matched_key = candidate
                 break
 
+        if matched_key is not None and matched_key in costed_pkeys_j:
+            # Material already priced in a previous detail — skip to avoid
+            # charging the same material multiple times (same logic as the
+            # costed_pkeys set in calculate_detail_takeoff).
+            continue
+
         if matched_key is None:
             # ---- Material Resolution Failure ----
             failure_msg = (
@@ -3230,6 +3314,7 @@ def join_takeoff_data(
         # ------------------------------------------------------------------
         # Calculate quantity and cost (deterministic)
         # ------------------------------------------------------------------
+        costed_pkeys_j.add(matched_key)
         spec_info: dict = confirmed_spec[matched_key]
         unit_price: float = _get_price(matched_key)
         coverage: dict = COVERAGE_RATES.get(matched_key, {})

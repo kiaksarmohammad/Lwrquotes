@@ -202,7 +202,8 @@ For EACH detail or section shown on this drawing page, identify:
 3. The detail type - classify as one of:
    parapet, drain, mechanical_curb, sleeper_curb, penetration_gas,
    penetration_electrical, penetration_plumbing, vent_hood, scupper,
-   expansion_joint, curtain_wall, field_assembly, pipe_support, opening_cover
+   expansion_joint, curtain_wall, field_assembly, pipe_support, opening_cover,
+   slope_plan
 4. All materials/products shown, listed from BOTTOM to TOP (or inside to outside)
 5. For each material, map it to the closest pricing_key from our database
 6. Whether this detail is measured in: sqft, linear_ft, or each
@@ -216,7 +217,8 @@ For EACH detail or section shown on this drawing page, identify:
 8. MATERIAL DIMENSIONS: For each material in a detail, estimate its cross-sectional width, height, or girth (in inches) if it is shown or can be visually estimated from the scale. For example, a parapet plywood face might be 24 inches tall, or a flashing strip might have an 18-inch girth. If unmeasurable, return null.
 
 IMPORTANT classification rules:
-- "field_assembly" is ONLY for the main roof membrane system that covers the entire roof surface
+- "field_assembly" is ONLY for the main roof membrane system cross-section detail (layers from deck to top of membrane)
+- "slope_plan" is for roof slope or drainage plan views embedded on a detail sheet (e.g. "Roof Slope Plan", "Drainage Plan", tapered insulation layout plans). These are NOT cross-sections and should NOT be classified as field_assembly.
 - Slab openings, infills, patches, and localized repairs are NOT field_assembly - classify as "opening_cover"
 - Structural repairs (concrete patching, grouting) are NOT field_assembly - classify as "opening_cover"
 - Each penetration, curb, or opening is measured as "each" with a small count
