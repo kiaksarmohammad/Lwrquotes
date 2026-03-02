@@ -97,8 +97,8 @@ COVERAGE_RATES = {
     "EPDM_Drainage_Mat":               {"sqft_per_unit": 300,  "unit": "roll (6'x50')"},
     "EPDM_Seam_Tape":                  {"sqft_per_unit": 1000, "unit": "roll (100 lf)"},
     "EPDM_Bonding_Adhesive":           {"sqft_per_unit": 300,  "unit": "pail (5 gal)"},
-    "EPDM_Primer_HP250":               {"sqft_per_unit": 50,   "unit": "gallon"},
-    "EPDM_Cav_Grip":                   {"sqft_per_unit": 500,  "unit": "cylinder"},
+    "EPDM_Primer_HP250":               {"sqft_per_unit": 50,   "unit": "gallon"},   # AI path: full-area priming (50 sqft/gal). Note: calculate_takeoff() uses 400 sqft/gal for narrow seam/RUSS strips only — both are correct for their context.
+    "EPDM_Cav_Grip":                   {"sqft_per_unit": 2000, "unit": "cylinder"},  # 0.5 cylinder/1000 sqft = 1/2000 sqft (matches _SYSTEM_CONSUMABLES)
     "EPDM_Lap_Sealant":                {"lf_per_unit": 22,     "unit": "tube"},
     "EPDM_PS_Corner":                  {"per_each": 1,         "unit": "piece"},
     "EPDM_Curb_Flash":                 {"lf_per_unit": 50,     "unit": "roll"},
@@ -146,7 +146,10 @@ COVERAGE_RATES = {
     "Metal_Flashing_Galvanized":        {"lf_per_unit": 1,      "unit": "LF"},
     "Metal_Flashing_Prepainted":        {"lf_per_unit": 1,      "unit": "LF"},
     "Metal_Cladding_Panel":             {"sqft_per_unit": 1,    "unit": "sqft"},
-    "EPS_Insulation_EPDM":             {"sqft_per_unit": 16,   "unit": "sheet (4'x4')"},
+    "EPS_Insulation_EPDM":             {"sqft_per_unit": 8,    "unit": "sheet (4'x4')"},  # 2-layer EPDM Ballasted = 8 sqft effective/sheet
+    # --- Items previously missing from COVERAGE_RATES (catastrophic fallback risk) ---
+    "Asphalt_Adhesive":                {"sqft_per_unit": 200,  "unit": "pail (5 gal)"},   # flood coat adhesive, ~200 sqft/pail
+    "XPS_Dow_EPDM":                    {"sqft_per_unit": 16,   "unit": "sheet (4'x4')"},   # Dow XPS insulation sheet
 }
 
 # Map AI detail_type -> (measurement_type, RoofMeasurements attribute)
@@ -165,6 +168,54 @@ DETAIL_TYPE_MAP = {
     "expansion_joint":         ("linear_ft", "perimeter_lf"),
     "pipe_support":            ("each",      "plumbing_vent_count"),
     "opening_cover":           ("each",      "mechanical_unit_count"),
+}
+
+# Map discrete pricing_key -> RoofMeasurements count attribute.
+# Used by calculate_detail_takeoff() to ensure per-EA items always use
+# their own count rather than the enclosing detail's area/length basis.
+DISCRETE_COUNT_ATTR: dict[str, str | None] = {
+    "Roof_Drain":           "roof_drain_count",
+    "Scupper":              "scupper_count",
+    "Roof_Hatch":           "roof_hatch_count",
+    "Roof_Anchor":          None,               # no dedicated count field → default 1
+    "Gutter_Downpipe":      None,               # no dedicated count field → default 1
+    "Pipe_Boot_Seal":       "plumbing_vent_count",
+    "EPDM_Pipe_Flashing":   "plumbing_vent_count",
+    "TPO_Pipe_Boot":        "plumbing_vent_count",
+    "Gooseneck_Vent":       "vent_hood_count",
+    "Plumbing_Vent":        "plumbing_vent_count",
+    "Vent_Cap":             "vent_hood_count",
+    "Gum_Box":              "gum_box_count",
+    "HVAC_Curb_Detail":     "mechanical_unit_count",
+    "Clips":                "corner_count",
+    "EPDM_PS_Corner":       "corner_count",
+    "TPO_Corner":           "corner_count",
+    "Catalyst":             None,               # PMMA catalyst — toggle-controlled → default 1
+    "Vapour_Barrier_TieIn": None,               # tie-in allowance → default 1
+}
+
+# Map discrete pricing_key -> spatial_json item_counts key.
+# Used by join_takeoff_data() which has no RoofMeasurements object and must
+# rely on the AI's plan-view counts instead.
+DISCRETE_AI_COUNT_KEY: dict[str, str | None] = {
+    "Roof_Drain":           "roof_drains",
+    "Scupper":              "scuppers",
+    "Roof_Hatch":           "roof_hatches",
+    "Roof_Anchor":          None,
+    "Gutter_Downpipe":      None,
+    "Pipe_Boot_Seal":       "plumbing_vents",
+    "EPDM_Pipe_Flashing":   "plumbing_vents",
+    "TPO_Pipe_Boot":        "plumbing_vents",
+    "Gooseneck_Vent":       "vent_hoods",
+    "Plumbing_Vent":        "plumbing_vents",
+    "Vent_Cap":             "vent_hoods",
+    "Gum_Box":              "gum_boxes",
+    "HVAC_Curb_Detail":     "mechanical_units",
+    "Clips":                "corners",
+    "EPDM_PS_Corner":       "corners",
+    "TPO_Corner":           "corners",
+    "Catalyst":             None,
+    "Vapour_Barrier_TieIn": None,
 }
 
 # Typical curb perimeters (LF) for fallback mode when AI doesn't provide dimensions
@@ -199,14 +250,14 @@ PERIMETER_TYPES = {
 # Vent labour hours lookup (Excel: Takeoff H43-H48)
 # Keys: base hours + adjustment per difficulty variant
 VENT_LABOUR_HOURS = {
-    "pipe_boot":  {"base": 1.0, "Normal": 0.0, "Hard": 1.0},
-    "b_vent":     {"base": 3.0, "No_Curb": 0.0, "Curb": 2.0},
-    "hood_vent":  {"base": 4.0, "Normal": -1.0, "Hard": 1.0},
-    "plumb_vent": {"base": 1.5, "Normal": 0.0, "Hard": 0.5},
-    "gum_box":    {"base": 3.0, "Normal": 0.0, "Hard": 1.0},
-    "scupper":    {"base": 2.0, "Easy": -0.5, "Normal": 0.0, "Hard": 1.0},
-    "radon_pipe": {"base": 1.5, "Normal": 0.0, "Hard": 0.5},
-    "drain":      {"base": 2.0, "Drop_Drain": -1.0, "Normal": 0.0, "Mech_Attachment": 1.0},
+    "pipe_boot":  {"base": 0.5,  "Normal": 0.0, "Hard": 1.0},
+    "b_vent":     {"base": 3.0,  "No_Curb": 0.0, "Curb": 2.0},
+    "hood_vent":  {"base": 5.0,  "Normal": -1.0, "Hard": 1.0},
+    "plumb_vent": {"base": 3.0,  "Thaler": -1.0, "SBS": 2.0},
+    "gum_box":    {"base": 2.0,  "Normal": 0.0, "Hard": 1.0},
+    "scupper":    {"base": 4.0,  "Easy": -1.0, "Normal": 0.0, "Hard": 2.0},
+    "radon_pipe": {"base": 2.0,  "Normal": 0.0, "Hard": 0.5},
+    "drain":      {"base": 3.0,  "Drop_Drain": -1.0, "Normal": 0.0, "Mech_Attachment": 1.0},
 }
 
 # Metal flashing pricing keys by type
@@ -237,27 +288,35 @@ class ProjectSettings:
     tear_off: bool = False                # Project!D19
     interior_access_only: bool = False    # Project!D20
     winter_conditions: bool = False       # Project!D21
-    scaffold_factor: float = 0.85
-    hot_work_factor: float = 0.90
-    tear_off_factor: float = 0.90
-    interior_access_factor: float = 0.85
-    winter_factor: float = 0.85
+    # Additive deltas applied to the difficulty factor (Excel: T41-T45, each -0.1)
+    scaffold_delta: float = -0.1
+    hot_work_delta: float = -0.1
+    tear_off_delta: float = -0.1
+    interior_access_delta: float = -0.1
+    winter_delta: float = -0.1
+
+    @property
+    def project_modifier_sum(self) -> float:
+        """Sum of active additive project-level deltas (Excel: T41-T45)."""
+        delta = 0.0
+        if self.floor_count > 3:
+            delta += self.scaffold_delta
+        if self.hot_work:
+            delta += self.hot_work_delta
+        if self.tear_off:
+            delta += self.tear_off_delta
+        if self.interior_access_only:
+            delta += self.interior_access_delta
+        if self.winter_conditions:
+            delta += self.winter_delta
+        return delta
 
     @property
     def effective_rate(self) -> float:
-        """Compute the adjusted flashing install rate after all modifiers."""
-        rate = self.base_flashing_rate
-        if self.floor_count > 3:
-            rate *= self.scaffold_factor
-        if self.hot_work:
-            rate *= self.hot_work_factor
-        if self.tear_off:
-            rate *= self.tear_off_factor
-        if self.interior_access_only:
-            rate *= self.interior_access_factor
-        if self.winter_conditions:
-            rate *= self.winter_factor
-        return rate
+        """Base rate adjusted for project modifiers only (no section difficulty).
+        Excel: 7.5 * (1.0 + project_modifier_sum). Section difficulty applied separately."""
+        combined = 1.0 + self.project_modifier_sum
+        return self.base_flashing_rate * max(combined, 0.1)
 
 
 @dataclass
@@ -325,29 +384,32 @@ class CurbDetail:
 @dataclass
 class PerimeterSection:
     """One perimeter section A-E (Excel: Takeoff R52-R58).
-    Each section has its own type, height, LF, and difficulty."""
+    Each section has its own type, height, width, LF, and difficulty."""
     name: str = "A"
     perimeter_type: str = "parapet_no_facing"
     height_in: float = 24.0
+    width_in: float = 0.0   # parapet cap/coping width (Excel: Takeoff col D)
     lf: float = 0.0
     fabrication_difficulty: str = "Normal"
     install_difficulty: str = "Normal"
 
     @property
     def strip_girth_in(self) -> float:
-        """Membrane strip girth in inches (Excel: Takeoff G53-G57)."""
+        """Membrane strip girth in inches (Excel: Takeoff G53-G57).
+        Parapet: C+D+10, Interior: C+6, Cant: 14, Divider: 2*(C+D+10)."""
         h = self.height_in
+        d = self.width_in
         if self.perimeter_type == "parapet_no_facing":
-            return h + 16   # 12" base run-out + 4" top
+            return h + d + 10
         elif self.perimeter_type == "parapet_w_facing":
-            return h + 20   # 12" base + 8" top (facing overlap)
+            return h + d + 10
         elif self.perimeter_type == "interior_wall":
-            return h + 16   # 12" base + 4" counter flash
+            return h + 6
         elif self.perimeter_type == "cant":
-            return math.sqrt(2) * h + 12  # diagonal + 12" base
+            return 14.0  # constant: 8" diagonal + 6" base
         elif self.perimeter_type == "divider_w_facing":
-            return 2 * h + 12  # both sides + base
-        return h + 16
+            return 2.0 * (h + d + 10)
+        return h + d + 10
 
     @property
     def strip_sqft(self) -> float:
@@ -355,19 +417,22 @@ class PerimeterSection:
 
     @property
     def metal_girth_in(self) -> float:
-        """Metal flashing girth in inches (Excel: Takeoff H53-H57)."""
+        """Metal flashing girth in inches (Excel: Takeoff H53-H57).
+        Parapet_no_facing: D+14, Parapet_w_facing: D+C+14,
+        Interior: 6, Cant: 12, Divider: D+2*C+14."""
         h = self.height_in
+        d = self.width_in
         if self.perimeter_type == "parapet_no_facing":
-            return h + 6    # 4" cap overlap + 2" hem
+            return d + 14
         elif self.perimeter_type == "parapet_w_facing":
-            return 2 * h + 4  # cap covers both sides
+            return d + h + 14
         elif self.perimeter_type == "interior_wall":
-            return h + 4
+            return 6.0   # constant
         elif self.perimeter_type == "cant":
-            return 0         # no metal on cant
+            return 12.0  # constant: 8" + 4" hem
         elif self.perimeter_type == "divider_w_facing":
-            return 2 * h + 8  # metal cap both sides
-        return h + 6
+            return d + 2.0 * h + 14
+        return d + 14
 
     @property
     def metal_sqft(self) -> float:
@@ -409,11 +474,14 @@ class PerimeterSection:
         return 0.0
 
     def install_hours(self, settings: ProjectSettings) -> float:
-        """Install hours using Project sheet modifiers (Excel: Takeoff R53-R57)."""
-        rate = settings.effective_rate
-        if rate <= 0:
-            return 0.0
-        return self.lf / rate
+        """Install hours using section difficulty + project modifiers (Excel: Takeoff R53-R57).
+        Formula: LF / (7.5 * (difficulty_factor + project_modifier_sum))."""
+        difficulty_map = {"Easy": 1.5, "Normal": 1.0, "Hard": 0.9}
+        diff_factor = difficulty_map.get(self.install_difficulty, 1.0)
+        combined = diff_factor + settings.project_modifier_sum
+        if combined <= 0:
+            combined = 0.1
+        return self.lf / (settings.base_flashing_rate * combined)
 
 
 @dataclass
@@ -448,18 +516,24 @@ class WoodWorkSection:
 
     @property
     def quantity(self) -> float:
-        """Number of pieces or sheets needed."""
+        """Number of 10ft lumber boards or plywood sheets needed (Excel: Takeoff H68-H76).
+        Vertical:   ROUNDUP(((layers*LF/(spacing/12))+1) / FLOOR(120/height_in) * 1.1)
+        Horizontal: ROUNDUP(LF/10 * layers * 1.1)
+        Plywood:    ROUNDUP(LF / FLOOR(48/height_in) / 8 * 1.1) * layers"""
+        height_in = self.height_ft * 12.0
         if self.wood_type == "plywood":
-            return math.ceil((self.height_ft * self.lf) / 32.0) * self.layers
+            if height_in <= 0:
+                return 0
+            rows_per_sheet = max(1, math.floor(48.0 / height_in))
+            return math.ceil(self.lf / 8.0 / rows_per_sheet * 1.1) * self.layers
         elif self.wood_type == "vertical":
-            if self.spacing_in <= 0:
+            if self.spacing_in <= 0 or height_in <= 0:
                 return 0
-            return math.ceil(self.lf / (self.spacing_in / 12.0)) * self.layers
-        else:  # horizontal
-            if self.spacing_in <= 0:
-                return 0
-            rows = math.ceil(self.height_ft / (self.spacing_in / 12.0))
-            return math.ceil(self.lf / 8.0) * rows * self.layers
+            pieces_per_board = max(1, math.floor(120.0 / height_in))
+            stud_count = self.layers * self.lf / (self.spacing_in / 12.0) + 1
+            return math.ceil(stud_count / pieces_per_board * 1.1)
+        else:  # horizontal — 10ft boards, no row optimization, 10% waste
+            return math.ceil(self.lf / 10.0 * self.layers * 1.1)
 
 
 @dataclass
@@ -471,13 +545,24 @@ class BattInsulationSection:
     insulation_type: str = "R24"
     layers: int = 1
 
+    # Coverage rates in sqft/bundle by framing type (Excel: Takeoff G79-G83)
+    _COVERAGE = {
+        "2x4": 59.4,   # R12 batts, 2x4 framing 16" OC
+        "R12": 59.4,
+        "2x6": 39.8,   # R22 batts, 2x6 framing 16" OC
+        "R22": 39.8,
+    }
+
     @property
     def sqft(self) -> float:
         return self.height_ft * self.lf * self.layers
 
     @property
     def bundles(self) -> int:
-        return math.ceil(self.sqft / 40.0) if self.sqft > 0 else 0
+        if self.sqft <= 0:
+            return 0
+        coverage = self._COVERAGE.get(self.insulation_type, 39.8)
+        return math.ceil(self.sqft / coverage * 1.1)
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +680,7 @@ def load_takeoff_excel(path: str) -> dict:
         if not section_name:
             continue
         height_in_raw = ws.cell(row=row_idx, column=3).value or 0
+        width_in_raw = ws.cell(row=row_idx, column=4).value or 0   # col D: coping width
         type_raw = str(ws.cell(row=row_idx, column=5).value or "")
         lf_raw = ws.cell(row=row_idx, column=6).value or 0
         fab_diff = str(ws.cell(row=row_idx, column=9).value or "Normal")
@@ -612,6 +698,7 @@ def load_takeoff_excel(path: str) -> dict:
                     _normalize_text(type_raw), "parapet_no_facing"
                 ),
                 height_in=float(str(height_in_raw or 0)),
+                width_in=float(str(width_in_raw or 0)),
                 lf=lf,
                 fabrication_difficulty=fab_diff,
                 install_difficulty=install_diff,
@@ -811,7 +898,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "EPDM_Fully_Adhered": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
@@ -825,7 +912,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "EPDM_Ballasted": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
         ("EPDM Membrane 60 mil (Carlisle Sure-Seal, loose laid)",
          "EPDM_Membrane_60mil", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
         ("EPS Insulation Type II (2 layers x 2.5\")",
@@ -837,7 +924,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "TPO_Mechanically_Attached": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
@@ -851,7 +938,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "TPO_Fully_Adhered": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
@@ -2625,9 +2712,13 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 info["detail_cost_calculation"] = None
 
         elif scope == "discrete":
-            if detail_type in DETAIL_TYPE_MAP:
-                mtype, attr = DETAIL_TYPE_MAP[detail_type]
-                info["detail_cost_calculation"] = getattr(m, attr, 0)
+            # Discrete items (priced per-EA) must always use their own count
+            # from RoofMeasurements — never the enclosing detail's area/length.
+            count_attr = DISCRETE_COUNT_ATTR.get(pkey)
+            if count_attr is not None:
+                info["detail_cost_calculation"] = getattr(m, count_attr, 1)
+            else:
+                info["detail_cost_calculation"] = 1
     # Mark duplicate details (same type AND same ref_id) as alternatives.
     # Different details of the same type (e.g. two different curb conditions) are
     # legitimately distinct and must all be costed.
@@ -2777,7 +2868,18 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             # 2. Fall back to material_registry's pre-computed value
             #    (which is now context-aware per detail_type).
             # 3. Last resort: base_value from DETAIL_TYPE_MAP fallback.
-            if quantity_source in ("unit_perimeter", "plan_view", "detail_drawing"):
+            if mat_scope == "discrete":
+                # Discrete items (per-EA) always use their own count from
+                # RoofMeasurements — never the enclosing detail's area/length,
+                # even when the AI provided a plan_view or detail_drawing value.
+                count_attr = DISCRETE_COUNT_ATTR.get(pkey)
+                if count_attr is not None:
+                    quantity_basis = getattr(m, count_attr, 1)
+                elif reg and reg["detail_cost_calculation"] is not None:
+                    quantity_basis = reg["detail_cost_calculation"]
+                else:
+                    quantity_basis = 1
+            elif quantity_source in ("unit_perimeter", "plan_view", "detail_drawing"):
                 # AI provided a specific measurement for this detail.
                 # For area-scoped materials in a linear detail (e.g. membrane
                 # strip on a parapet), convert LF to sqft using parapet height.
@@ -2793,15 +2895,16 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             else:
                 quantity_basis = base_value
 
+            _waste = 1.10  # 10% waste — aligns with join_takeoff_data() and calculate_takeoff()
             if cov.get("per_each") is not None:
-                units_needed = math.ceil(quantity_basis)
+                units_needed = math.ceil(quantity_basis)  # discrete counts: no waste
             elif cov.get("lf_per_unit") is not None and mat_scope == "linear":
-                units_needed = math.ceil(quantity_basis / cov["lf_per_unit"])
+                units_needed = math.ceil(quantity_basis * _waste / cov["lf_per_unit"])
             elif cov.get("sqft_per_unit") is not None:
-                units_needed = math.ceil(quantity_basis / cov["sqft_per_unit"])
+                units_needed = math.ceil(quantity_basis * _waste / cov["sqft_per_unit"])
             else:
                 print("item has no pricing key falling back to default")
-                units_needed = math.ceil(quantity_basis)
+                units_needed = math.ceil(quantity_basis * _waste)
 
             # EPS thickness-tiered pricing: same formula as calculate_takeoff
             if pkey == "EPS_Insulation_EPDM":
@@ -3132,7 +3235,17 @@ def join_takeoff_data(
         coverage: dict = COVERAGE_RATES.get(matched_key, {})
         waste: float = 1.10
 
-        if mtype == "sqft":
+        if coverage.get("per_each") is not None:
+            # Discrete item (priced per-EA): use AI plan-view counts from
+            # item_counts rather than any area/length measurement — this
+            # prevents a roof area of 18,450 sqft becoming 18,450 drains.
+            ai_key = DISCRETE_AI_COUNT_KEY.get(matched_key)
+            if ai_key is not None and item_counts.get(ai_key, 0) > 0:
+                quantity = item_counts[ai_key]
+            else:
+                quantity = max(1, int(base_value))
+            unit = coverage.get("unit", "EA")
+        elif mtype == "sqft":
             sqft_per = float(coverage.get("sqft_per_unit", 32))
             quantity = math.ceil(base_value * waste / sqft_per)
             unit = coverage.get("unit", "unit")
