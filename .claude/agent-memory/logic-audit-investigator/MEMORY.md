@@ -1,48 +1,58 @@
 # Logic Audit Investigator - Memory
 
-## Confirmed Bugs (2026-03-01 Audit)
-See `audit-2026-03-01.md` for full details.
+## Confirmed Bugs (2026-03-01 Re-Audit)
 
-### Critical: Double/Triple-Counted Materials
-- EPDM Seam Tape: area_materials + epdm_tpo_details (both EPDM systems)
-- TPO Tuck Tape: consumables + epdm_tpo_details (both TPO systems)
-- EPDM HP-250 Primer: area_materials + wall_consumables + epdm_tpo_details
-- TPO Rhinobond Plates: area_materials + epdm_tpo_details (TPO_Mech_Attached)
+### Previously Critical Bugs - ALL FIXED
+- EPDM Seam Tape double-counting: FIXED
+- TPO Tuck Tape double-counting: FIXED
+- EPDM HP-250 Primer double-counting: FIXED
+- TPO Rhinobond Plates double-counting: FIXED
+- Firetape name match bug (Soprasmart matching Tapered ISO): FIXED
+- Ballast qty using wrong area: FIXED (now uses effective_ballast_area)
+- PMMA Primer using section count: FIXED (now uses parapet_lf / 200)
+- calculate_detail_takeoff over-aggressive dedup: FIXED
 
-### Critical: Firetape Name Match Bug
-- Line 1802: searches area_materials for 'Soprasmart' but matches Tapered ISO (not coverboard)
-- SBS system has no Densdeck coverboard, so formula picks up wrong material
-- Produces 11,416 LF of firetape instead of ~408 LF (28x overshoot)
+### Active Bugs (found 2026-03-01)
 
-### High: Ballast Qty Uses Wrong Area
-- Line 1386 uses `roof_area` but should use `m.effective_ballast_area`
+**CRITICAL: Discrete materials in non-discrete detail types get wrong quantity basis**
+- Lines 2627-2630 in calculate_detail_takeoff
+- Discrete items (per_each) inside field_assembly details get total_roof_area_sqft as count
+- Example: Roof_Drain gets 18,450 EA instead of 4 EA ($5.99M overcount)
+- Same pattern affects Clips in parapet details (503 instead of ~50)
+- Root cause: DETAIL_TYPE_MAP lookup uses enclosing detail_type, not item's own count attr
 
-### High: PMMA Primer Uses Section Count Instead of LF
-- Line 1860: `perim_section_count / 200` always yields 1 pail (max 5 sections)
+**Medium: Asphalt EasyMelt layer_count = 7 instead of ~2**
+- Line 1865: uses ALL area layers (7) instead of mopped layers (~2)
+- 3.5x overcounting of asphalt quantity
 
-### Medium: Empty String Detail Matching
-- drawing_analyzer.py line 721: `"" in "any_string"` is always True
+**Medium: Firetape roll size 60 vs 75 LF mismatch**
+- Line 1800 uses 60; COVERAGE_RATES says 75 LF/roll
+- ~17% overcount
 
-### Medium: calculate_detail_takeoff Over-Aggressive Dedup
-- Lines 2626-2633 mark all same-type details as alternatives (too broad)
+**Low: EPS price override ignores thickness in AI path**
+- _PRICE_OVERRIDES fixed at $12.40 (2.5"), AI path uses this regardless
 
-### Low: Template Division by Zero
-- manual_result.html line 390: no guard against zero roof area
+**Low: sbs_base_type defined but never used in calculate_takeoff**
 
-### Low: Garland Gar-Mesh Identity Formula
-- `(parapet_lf/3)*3` = `parapet_lf` (no-op, likely copy error from Excel)
+**Low: Fabrication hours never totaled in calculate_takeoff**
 
-## Verified Correct
-- CurbDetail 3-tier labour formula (< 25", 25-69", > 69")
-- PerimeterSection girth calculations (5 types)
-- EPS tiered pricing (0.31/sqft/inch x 16 sqft x thickness)
-- ProjectSettings effective_rate cascading multipliers
-- VentItem hours_per_unit (base + difficulty adjustment)
-- Fire board scope logic (Wall/Field/Both)
-- ISO 2nd/3rd layer logic
+**Low: Garland products added with zero parapet/curbs (min 1 unit)**
+
+### Possibly Not in roof_estimator.py
+- drawing_analyzer.py empty string detail matching
+- manual_result.html template division by zero
+
+## Verified Correct (2026-03-01)
+- CurbDetail 3-tier labour, PerimeterSection 5-type girth, ProjectSettings
+- VentItem, WoodWorkSection, BattInsulationSection
+- EPS tiered pricing, Bid summary formula, Fire board scope, ISO layers
+- Firetape conditional logic, EPDM/TPO detail sections, Corner defaults
+- Division-by-zero guards, TPO wall primer separation
 
 ## Architecture Notes
-- `_get_price()` checks _PRICE_OVERRIDES first, then PRICING, EPDM_SPECIFIC, TPO_SPECIFIC, COMMON
-- `calculate_takeoff()` builds 4 cost buckets: roofing, flashing, mechanical, other
-- `calculate_detail_takeoff()` is the AI-driven path; `calculate_takeoff()` is manual
-- database.py has 3 extra dicts beyond PRICING: EPDM_SPECIFIC, TPO_SPECIFIC, COMMON
+- `_get_price()`: _PRICE_OVERRIDES -> PRICING -> EPDM_SPECIFIC -> TPO_SPECIFIC -> COMMON
+- `calculate_takeoff()`: 4 cost buckets (roofing, flashing, mechanical, other)
+- `calculate_detail_takeoff()`: AI-driven path with material dedup by pricing_key
+- `join_takeoff_data()`: spec-joined path, base_value=1.0 in fallback (conservative)
+- COVERAGE_RATES (AI path) vs _SYSTEM_AREA_LAYERS (manual path) may conflict
+- DETAIL_TYPE_MAP maps detail_type -> (mtype, attr); DANGEROUS for discrete items in area/linear details

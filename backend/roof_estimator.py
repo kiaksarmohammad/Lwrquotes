@@ -397,6 +397,11 @@ class PerimeterSection:
         return rates.get(self.fabrication_difficulty, 0.5)
 
     @property
+    def total_fabrication_hours(self) -> float:
+        """Total metal fabrication hours for this perimeter section."""
+        return self.fabrication_hours_per_sheet * self.metal_sheet_count
+
+    @property
     def wood_face_sqft(self) -> float:
         """Wood facing area (only for types with facing)."""
         if self.perimeter_type in ("parapet_w_facing", "divider_w_facing"):
@@ -781,8 +786,8 @@ _ALL_MATERIALS = [PRICING, EPDM_SPECIFIC_MATERIALS, TPO_SPECIFIC_MATERIALS, COMM
 
 # Price overrides for materials with non-standard pricing models
 _PRICE_OVERRIDES = {
-    # EPS: $0.31/sqft/inch × 16 sqft (4'×4' sheet) × 2.5" thick = $12.40/sheet
-    "EPS_Insulation_EPDM": 12.40,
+    # EPS uses thickness-based formula: 0.31/sqft/inch × 16 sqft × thickness_in
+    # Handled explicitly in calculate_takeoff and calculate_detail_takeoff — no override here
 }
 
 # Area-based material layers per roof system type
@@ -1053,6 +1058,8 @@ class RoofMeasurements:
     vapour_barrier_tie_in: bool = False
 
     # --- SBS base sheet type ---
+    # TODO: implement type-specific product/pricing logic for "torch" vs "peel_stick"
+    # Field is exposed in manual_form.html and app.py but calculate_takeoff currently treats both identically
     sbs_base_type: str = "torch"  # "torch" or "peel_stick"
 
     # --- Project settings (Excel: Project sheet modifiers) ---
@@ -1152,6 +1159,11 @@ class RoofMeasurements:
     def total_perimeter_install_hours(self) -> float:
         """Total perimeter install hours using project settings."""
         return sum(s.install_hours(self.project_settings) for s in self.perimeter_sections)
+
+    @property
+    def total_perimeter_fabrication_hours(self) -> float:
+        """Total perimeter metal fabrication hours across all sections."""
+        return sum(s.total_fabrication_hours for s in self.perimeter_sections)
 
     @property
     def total_vent_hours(self) -> float:
@@ -1272,6 +1284,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             "version": m.version,
             "total_curb_labour_hours": round(m.total_curb_labour_hours, 1),
             "total_perimeter_install_hours": round(m.total_perimeter_install_hours, 1),
+            "total_perimeter_fabrication_hours": round(m.total_perimeter_fabrication_hours, 1),
             "total_vent_hours": round(m.total_vent_hours, 1),
         },
         "roof_sections": [],
@@ -1473,6 +1486,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
                 "fab_difficulty": sec.fabrication_difficulty,
                 "install_difficulty": sec.install_difficulty,
                 "install_hours": round(sec.install_hours(m.project_settings), 1),
+                "fabrication_hours": round(sec.total_fabrication_hours, 1),
             })
 
     # ===================================================================
@@ -1797,13 +1811,14 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             firetape_lf = parapet_lf if any_torch_or_mop else 0
 
         if firetape_lf > 0:
-            firetape_rolls = math.ceil(firetape_lf / 60)
+            firetape_lf_per_roll = COVERAGE_RATES["Roof_Tape_IKO"]["lf_per_unit"]
+            firetape_rolls = math.ceil(firetape_lf / firetape_lf_per_roll)
             firetape_price = _get_price("Roof_Tape_IKO")
             firetape_cost = firetape_rolls * firetape_price
             results["consumables"].append({
                 "name": "IKO Firetape 6\" (conditional on attachment)",
                 "quantity": firetape_rolls,
-                "unit": "roll (60 LF)",
+                "unit": f"roll ({firetape_lf_per_roll} LF)",
                 "unit_price": round(firetape_price, 2),
                 "line_cost": round(firetape_cost, 2),
                 "bid_group": "roofing",
@@ -1860,15 +1875,15 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
             })
             total_roofing_cost += pmma_primer_cost
 
-    # Asphalt EasyMelt (Excel: FRS R46) — layer count from system
+    # Asphalt EasyMelt (Excel: FRS R46) — only mopped layers consume asphalt
     if m.include_asphalt_easymelt and system == "SBS":
-        layer_count = len(_SYSTEM_AREA_LAYERS.get(system, []))
+        mopped_layers = 2  # Base Sheet + Vapour Barrier (Cap Sheet is torch-applied)
         squares = roof_area / 100.0
-        asphalt_qty = math.ceil(25 * squares / 50 * layer_count)
+        asphalt_qty = math.ceil(25 * squares / 50 * mopped_layers)
         asphalt_price = _get_price("Asphalt_EasyMelt")
         asphalt_cost = asphalt_qty * asphalt_price
         results["consumables"].append({
-            "name": f"Asphalt EasyMelt ({layer_count} layers)",
+            "name": f"Asphalt EasyMelt ({mopped_layers} mopped layers)",
             "quantity": asphalt_qty,
             "unit": "pail",
             "unit_price": round(asphalt_price, 2),
@@ -1878,7 +1893,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         total_roofing_cost += asphalt_cost
 
     # Garland System (Excel: FRS R56-R59) — 4 products
-    if m.garland_system:
+    if m.garland_system and (parapet_lf > 0 or any(c.count > 0 for c in m.curbs)):
         total_curbs = sum(c.count for c in m.curbs)
         # Tuff-Stuff MS: perimeter_lf / 15 tubes
         tuff_qty = math.ceil(parapet_lf / 15) if parapet_lf > 0 else 0
@@ -1897,7 +1912,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
 
         # Gar-Mesh: (parapet_lf + 4*curbs) / 150 * 1.1
         gar_mesh_area = (parapet_lf + (4 * total_curbs)) / 150 * 1.1
-        gar_mesh_rolls = max(math.ceil(gar_mesh_area), 1)
+        gar_mesh_rolls = math.ceil(gar_mesh_area)
         gar_mesh_price = _get_price("Gar_Mesh")
         gar_mesh_cost = gar_mesh_rolls * gar_mesh_price
         results["consumables"].append({
@@ -1911,7 +1926,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         total_flashing_cost += gar_mesh_cost
 
         # Garla-Flex: gar_mesh_rolls * 8/12 * 150 * 1.1 / 30
-        garla_flex_pails = max(math.ceil(gar_mesh_rolls * 8 / 12 * 150 * 1.1 / 30), 1)
+        garla_flex_pails = math.ceil(gar_mesh_rolls * 8 / 12 * 150 * 1.1 / 30)
         garla_flex_price = _get_price("Garla_Flex")
         garla_flex_cost = garla_flex_pails * garla_flex_price
         results["consumables"].append({
@@ -1925,7 +1940,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         total_flashing_cost += garla_flex_cost
 
         # Flashing Bond Mastic: gar_mesh_rolls * 2
-        mastic_pails = max(math.ceil(gar_mesh_rolls * 2), 1)
+        mastic_pails = math.ceil(gar_mesh_rolls * 2)
         mastic_price = _get_price("Flashing_Bond_Mastic_Garland")
         mastic_cost = mastic_pails * mastic_price
         results["consumables"].append({
@@ -2788,7 +2803,11 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 print("item has no pricing key falling back to default")
                 units_needed = math.ceil(quantity_basis)
 
-            unit_price = _get_price(pkey)
+            # EPS thickness-tiered pricing: same formula as calculate_takeoff
+            if pkey == "EPS_Insulation_EPDM":
+                unit_price = 0.31 * m.eps_thickness_in * 16  # $0.31/sqft/inch × 16 sqft/sheet
+            else:
+                unit_price = _get_price(pkey)
             if unit_price is not None:
                 layer_cost = units_needed * unit_price
             else:
