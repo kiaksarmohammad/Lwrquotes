@@ -114,7 +114,7 @@ async def manual_estimate(request: Request):
     total_roof_area = fval("total_roof_area")
     perimeter_lf = fval("perimeter_lf")
     parapet_length_lf = fval("parapet_length_lf")
-    parapet_height_ft = fval("parapet_height_ft", 2.0)
+    parapet_height_ft = fval("parapet_height_ft", 1.0)
 
     # --- Multi-section roof (6 sections) ---
     roof_sections = []
@@ -355,7 +355,6 @@ async def drawing_measure(
     ref_description: str = Form(""),
     ref_value: float = Form(0.0),
     ref_unit: str = Form("ft"),
-    ref_page: str = Form(""),
     # Solar API dims passed through as hidden form fields from step 2
     solar_width_ft: float = Form(0.0),
     solar_height_ft: float = Form(0.0),
@@ -392,6 +391,18 @@ async def drawing_measure(
         plan_pg = _parse_page_list(plan_pages) if plan_pages.strip() else []
         detail_pg = _parse_page_list(detail_pages) if detail_pages.strip() else []
 
+        # If auto-detection found no pages, fall back to all pages
+        if not plan_pg or not detail_pg:
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(pdf_path)
+            total_pages = len(doc)
+            doc.close()
+            all_pages = list(range(1, total_pages + 1))
+            if not plan_pg:
+                plan_pg = all_pages
+            if not detail_pg:
+                detail_pg = all_pages
+
         # Build reference measurement dict.
         # Priority: manual user entry first, then Solar API dims as guaranteed fallback.
         reference_measurement = None
@@ -406,17 +417,17 @@ async def drawing_measure(
                 f"/drawing/measure using manual reference: "
                 f"{ref_value} {ref_unit} — '{ref_description.strip()}'"
             )
-        elif solar_longest_ft > 0 and solar_longest_dir:
-            # Fall back to Solar API measurement when no manual reference given
+        elif solar_width_ft > 0 or solar_height_ft > 0:
+            # Fall back to Solar API bounding-box dimensions as a sanity-check reference.
+            # Both axes are passed so the prompt can cross-check without overriding the scale.
             reference_measurement = {
-                "description": f"{solar_longest_dir} wall (Google Solar API)",
-                "value": solar_longest_ft,
-                "unit": "ft",
+                "width_ft": solar_width_ft,
+                "height_ft": solar_height_ft,
             }
             logger.info(
-                f"/drawing/measure using Solar API reference: "
-                f"{solar_longest_ft} ft — '{solar_longest_dir} wall' "
-                f"(also available: width={solar_width_ft} ft, height={solar_height_ft} ft)"
+                f"/drawing/measure using Solar API sanity-check: "
+                f"width={solar_width_ft} ft, height={solar_height_ft} ft "
+                f"(longest={solar_longest_ft} ft {solar_longest_dir})"
             )
         else:
             logger.info("/drawing/measure: no reference measurement available — Gemini will rely on drawing scale only")
@@ -452,7 +463,7 @@ async def drawing_measure(
         }
 
         parapet_height = await parapet_height_task if parapet_height_task else {
-            "parapet_height_ft": 2.0,
+            "parapet_height_ft": 1.0,
             "confidence": "low",
             "notes": "No detail pages selected."
         }
@@ -494,7 +505,7 @@ async def drawing_measure(
                 "notes": f"Auto-measurement failed: {str(e)}"
             },
             "parapet_height": {
-                "parapet_height_ft": 2.0,
+                "parapet_height_ft": 1.0,
                 "confidence": "low",
                 "notes": "Using default height."
             },
@@ -513,7 +524,7 @@ async def drawing_analyze(
     total_roof_area: float = Form(0.0),
     perimeter_lf: float = Form(0.0),
     parapet_length_lf: float = Form(0.0),
-    parapet_height_ft: float = Form(2.0),
+    parapet_height_ft: float = Form(1.0),
 ):
     import logging
     _logger = logging.getLogger("drawing_analyze")
@@ -607,7 +618,7 @@ async def drawing_analyze(
         joined_estimate = None
         if spec_result and spec_result.get("spec_materials"):
             try:
-                joined_estimate = join_takeoff_data(analysis, spec_result)
+                joined_estimate = join_takeoff_data(analysis, spec_result, measurements)
                 _logger.info(
                     f"[PRICING] join_takeoff_data: "
                     f"{joined_estimate['bid_summary']['total_line_items']} line items, "

@@ -44,6 +44,7 @@ COVERAGE_RATES = {
     "Base_Membrane":                   {"sqft_per_unit": 100, "unit": "roll"},
     "Cap_Membrane":                    {"sqft_per_unit": 86,  "unit": "roll"},
     "SBS_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
+    "SBS_2Ply_Modified_Bitumen":       {"sqft_per_unit": 1,   "unit": "sqft"},
     "EPDM_Membrane":                   {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
     "TPO_Membrane":                    {"sqft_per_unit": 1000, "unit": "roll (10'x100')"},
     "PVC_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
@@ -2693,6 +2694,35 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
                 "detail_cost_calculation": None,
             }
 
+    # D3 FIX: Re-register each material with its highest-priority detail type.
+    # The initial pass above assigns the FIRST-SEEN detail (page order), which
+    # may be a low-priority type (e.g. penetration_gas) even when the same
+    # material also appears in a higher-priority type (e.g. field_assembly).
+    # Priority: field_assembly > parapet/curtain_wall > expansion_joint > others
+    _AREA_PRIORITY: dict[str, int] = {
+        "field_assembly": 3, "parapet": 2, "curtain_wall": 2,
+    }
+    _LINEAR_PRIORITY: dict[str, int] = {
+        "parapet": 3, "curtain_wall": 3, "expansion_joint": 3, "field_assembly": 2,
+    }
+    for detail in all_details:
+        if detail.get("detail_type") == "slope_plan":
+            continue
+        dtype_candidate = detail.get("detail_type", "unknown")
+        for layer in detail.get("layers", []):
+            pkey = layer.get("pricing_key", "custom")
+            if pkey not in material_registry:
+                continue
+            info = material_registry[pkey]
+            scope = info["scope"]
+            current_dtype = info["detail_type"]
+            if scope == "area":
+                if _AREA_PRIORITY.get(dtype_candidate, 0) > _AREA_PRIORITY.get(current_dtype, 0):
+                    info["detail_type"] = dtype_candidate
+            elif scope == "linear":
+                if _LINEAR_PRIORITY.get(dtype_candidate, 0) > _LINEAR_PRIORITY.get(current_dtype, 0):
+                    info["detail_type"] = dtype_candidate
+
     # Assign quantity basis using detail_type + scope to pick the RIGHT area.
     # Detail types that cover the whole roof field use total_roof_area_sqft.
     # Detail types that cover walls/parapets use total_strip_sqft.
@@ -3095,6 +3125,7 @@ _DETAIL_TYPE_TO_SPEC_KEYS: dict[str, list[str]] = {
 def join_takeoff_data(
     spatial_json: dict,
     spec_json: dict,
+    measurements: "RoofMeasurements | None" = None,
 ) -> dict:
     """
     Deterministically merge spatial drawing data with spec material data.
@@ -3109,6 +3140,11 @@ def join_takeoff_data(
         Output of ``file_extractor.py::analyze_text()``.
         Must contain a ``spec_materials`` key — a flat dict keyed by
         canonical PRICING keys (e.g. ``"Tapered_ISO"``, ``"Roof_Drain"``).
+
+    measurements : RoofMeasurements | None
+        Optional measurements object.  When provided, the DETAIL_TYPE_MAP
+        fallback uses real area / perimeter / count values instead of 1.0.
+        Pass the result of ``measurements_from_analysis()`` from the caller.
 
     Returns
     -------
@@ -3125,8 +3161,8 @@ def join_takeoff_data(
               "unit": str,
               "unit_price": float,
               "line_cost": float,
-              "quantity_source": str,  # "plan_view" | "detail_drawing" | "fallback"
-              "spec_pages": [int, ...]  # pages in spec doc where material confirmed
+              "quantity_source": str,
+              "spec_pages": [int, ...]
             }
           ],
           "material_failures": [
@@ -3161,7 +3197,7 @@ def join_takeoff_data(
     grand_total: float = 0.0
 
     # ------------------------------------------------------------------
-    # Build plan-view detail_quantities lookup (same logic as calculate_detail_takeoff)
+    # Build plan-view detail_quantities lookup
     # ------------------------------------------------------------------
     plan_detail_qtys: dict[str, dict] = {}
     for plan in spatial_json.get("plan_analysis", []):
@@ -3180,7 +3216,7 @@ def join_takeoff_data(
             item_counts[k] = item_counts.get(k, 0) + v
 
     # ------------------------------------------------------------------
-    # Iterate over all AI-identified details
+    # Collect all AI-identified details
     # ------------------------------------------------------------------
     all_details: list[dict] = []
     for page_data in spatial_json.get("detail_analysis", []):
@@ -3201,8 +3237,7 @@ def join_takeoff_data(
         1 for d in all_details if d.get("detail_type") == "field_assembly"
     )
 
-    # Track priced keys to ensure each material is charged exactly once,
-    # matching the consolidated-material-list approach in calculate_detail_takeoff.
+    # Each material is charged exactly once across all details.
     costed_pkeys_j: set[str] = set()
 
     for detail in all_details:
@@ -3213,17 +3248,16 @@ def join_takeoff_data(
         dref: str = detail.get("_drawing_ref", "?")
 
         # ------------------------------------------------------------------
-        # Resolve quantity (mirrors priority order in calculate_detail_takeoff)
+        # Resolve quantity for this detail
         # ------------------------------------------------------------------
         quantity_source: str = "fallback"
         base_value: float = 1.0
         mtype: str = detail.get("measurement_type", "each")
 
-        # Priority 1: plan_detail_quantities
         plan_qty: dict | None = None
         detail_ref_id_j: str = detail.get("detail_ref_id", "")
 
-        # Step A: exact match on detail_ref_id (e.g. "3/R3.1" → "Detail 3/R3.1")
+        # Step A: exact match on detail_ref_id
         if detail_ref_id_j:
             exact_key_j = f"Detail {detail_ref_id_j}"
             for ref_key, qty_info in plan_detail_qtys.items():
@@ -3231,8 +3265,7 @@ def join_takeoff_data(
                     plan_qty = qty_info
                     break
 
-        # Step B: token-exact match on detail name number — avoids substring
-        # false-positives where "Detail 1" would match "Detail 10/R3.0".
+        # Step B: token-exact match on detail name number
         if plan_qty is None:
             detail_num = dname.split(" - ")[0].strip() if " - " in dname else dname
             name_match_j = re.match(r'detail\s+(\S+)', detail_num.strip(), re.IGNORECASE)
@@ -3249,122 +3282,125 @@ def join_takeoff_data(
             mtype = plan_qty.get("unit", mtype)
             quantity_source = "plan_view"
 
-        # Priority 2: AI scope_quantity from detail drawing
         elif (detail.get("scope_quantity") is not None
               and detail["scope_quantity"] > 0):
             base_value = float(detail["scope_quantity"])
             mtype = detail.get("scope_unit", mtype)
             quantity_source = "detail_drawing"
 
-        # Priority 3: DETAIL_TYPE_MAP fallback
         else:
+            # D1 FIX: use real measurements when available; otherwise 1.0
             type_info = DETAIL_TYPE_MAP.get(dtype)
             if type_info:
-                map_mtype, _ = type_info
+                map_mtype, attr = type_info
                 mtype = map_mtype
-            base_value = 1.0  # conservative — no spatial data available
+                if measurements is not None:
+                    base_value = float(getattr(measurements, attr, 0)) or 1.0
+                else:
+                    base_value = 1.0
+            else:
+                base_value = 1.0
             quantity_source = "fallback"
 
         if dtype == "field_assembly" and field_assembly_count > 1:
             base_value = base_value / field_assembly_count
 
         # ------------------------------------------------------------------
-        # Resolve material from spec_json  (DETERMINISTIC — no LLM)
+        # D2 FIX: build ordered list of ALL candidate pricing keys for this
+        # detail — AI-identified layer keys first, then type-map defaults.
+        # Price EVERY confirmed material, not just the first match.
         # ------------------------------------------------------------------
-        candidate_keys: list[str] = _DETAIL_TYPE_TO_SPEC_KEYS.get(dtype, [])
-
-        # Also include any pricing_keys suggested by the AI detail layers
+        layer_keys: list[str] = []
         for layer in detail.get("layers", []):
             pk = layer.get("pricing_key", "")
-            if pk and pk not in candidate_keys:
-                candidate_keys = [pk] + candidate_keys  # AI suggestion takes priority
+            if pk and pk not in layer_keys:
+                layer_keys.append(pk)
+        for type_key in _DETAIL_TYPE_TO_SPEC_KEYS.get(dtype, []):
+            if type_key not in layer_keys:
+                layer_keys.append(type_key)
 
-        matched_key: str | None = None
-        for candidate in candidate_keys:
-            if candidate in confirmed_spec:
-                matched_key = candidate
-                break
-
-        if matched_key is not None and matched_key in costed_pkeys_j:
-            # Material already priced in a previous detail — skip to avoid
-            # charging the same material multiple times (same logic as the
-            # costed_pkeys set in calculate_detail_takeoff).
-            continue
-
-        if matched_key is None:
-            # ---- Material Resolution Failure ----
+        # Check if any candidate is confirmed in spec at all
+        any_confirmed = any(pk in confirmed_spec for pk in layer_keys)
+        if not any_confirmed:
             failure_msg = (
                 f"Material Resolution Failure: Detail '{dname}' (type={dtype}, "
-                f"ref={dref}) requires one of {candidate_keys} but none were "
-                f"confirmed in the Specification document (spec_materials is empty "
-                f"or does not contain a matching key). "
-                f"Verify Specification PDF coverage or add missing regex patterns "
-                f"to database.PRODUCT_KEYWORDS."
+                f"ref={dref}) — none of {layer_keys} confirmed in Specification."
             )
             logger.warning(failure_msg)
             material_failures.append({
                 "detail_name": dname,
                 "detail_type": dtype,
                 "drawing_ref": dref,
-                "expected_pricing_keys": list(candidate_keys),
+                "expected_pricing_keys": layer_keys,
                 "message": failure_msg,
             })
-            continue  # skip — cannot price without confirmed material
+            continue
 
-        # ------------------------------------------------------------------
-        # Calculate quantity and cost (deterministic)
-        # ------------------------------------------------------------------
-        costed_pkeys_j.add(matched_key)
-        spec_info: dict = confirmed_spec[matched_key]
-        unit_price: float = _get_price(matched_key)
-        coverage: dict = COVERAGE_RATES.get(matched_key, {})
-        waste: float = 1.10
+        # Price each confirmed material that hasn't been costed yet
+        for matched_key in layer_keys:
+            if matched_key not in confirmed_spec:
+                continue
+            if matched_key in costed_pkeys_j:
+                continue
 
-        if coverage.get("per_each") is not None:
-            # Discrete item (priced per-EA): use AI plan-view counts from
-            # item_counts rather than any area/length measurement — this
-            # prevents a roof area of 18,450 sqft becoming 18,450 drains.
-            ai_key = DISCRETE_AI_COUNT_KEY.get(matched_key)
-            if ai_key is not None and item_counts.get(ai_key, 0) > 0:
-                quantity = item_counts[ai_key]
-            else:
-                quantity = max(1, int(base_value))
-            unit = coverage.get("unit", "EA")
-        elif mtype == "sqft":
-            sqft_per = float(coverage.get("sqft_per_unit", 32))
-            quantity = math.ceil(base_value * waste / sqft_per)
-            unit = coverage.get("unit", "unit")
-        elif mtype == "linear_ft":
-            if "lf_per_unit" in coverage:
-                lf_per = float(coverage["lf_per_unit"])
-                quantity = math.ceil(base_value * waste / lf_per)
-                unit = coverage.get("unit", "unit")
-            else:
-                # Treat as sqft fallback
+            costed_pkeys_j.add(matched_key)
+            spec_info: dict = confirmed_spec[matched_key]
+            unit_price: float = _get_price(matched_key)
+            coverage: dict = COVERAGE_RATES.get(matched_key, {})
+            mat_scope = _material_scope(matched_key)
+            waste: float = 1.10
+
+            # Quantity basis: for area-scope materials in a linear detail,
+            # convert LF → sqft using the detail-type-appropriate height.
+            quantity_basis = base_value
+            if mat_scope == "area" and mtype == "linear_ft":
+                if dtype in ("parapet", "curtain_wall"):
+                    strip_h = getattr(measurements, "parapet_height_ft", 2.0) if measurements else 2.0
+                else:
+                    strip_h = _DETAIL_STRIP_HEIGHT_FT.get(dtype, 1.0)
+                quantity_basis = base_value * strip_h
+
+            if coverage.get("per_each") is not None:
+                ai_key = DISCRETE_AI_COUNT_KEY.get(matched_key)
+                if ai_key is not None and item_counts.get(ai_key, 0) > 0:
+                    quantity = item_counts[ai_key]
+                else:
+                    quantity = max(1, int(quantity_basis))
+                unit = coverage.get("unit", "EA")
+            elif mtype == "sqft" or (mat_scope == "area" and mtype == "linear_ft"):
                 sqft_per = float(coverage.get("sqft_per_unit", 32))
-                quantity = math.ceil(base_value * waste / sqft_per)
+                quantity = math.ceil(quantity_basis * waste / sqft_per)
                 unit = coverage.get("unit", "unit")
-        else:  # each
-            per_each = coverage.get("per_each", 1)
-            quantity = max(1, int(base_value * per_each))
-            unit = coverage.get("unit", "EA")
+            elif mtype == "linear_ft":
+                if "lf_per_unit" in coverage:
+                    lf_per = float(coverage["lf_per_unit"])
+                    quantity = math.ceil(quantity_basis * waste / lf_per)
+                    unit = coverage.get("unit", "unit")
+                else:
+                    sqft_per = float(coverage.get("sqft_per_unit", 32))
+                    quantity = math.ceil(quantity_basis * waste / sqft_per)
+                    unit = coverage.get("unit", "unit")
+            else:  # each
+                per_each = coverage.get("per_each", 1)
+                quantity = max(1, int(quantity_basis * per_each))
+                unit = coverage.get("unit", "EA")
 
-        line_cost: float = quantity * unit_price
-        grand_total += line_cost
+            line_cost: float = quantity * unit_price
+            grand_total += line_cost
 
-        resolved_line_items.append({
-            "detail_name": dname,
-            "detail_type": dtype,
-            "drawing_ref": dref,
-            "pricing_key": matched_key,
-            "material_name": spec_info["product_name"],
-            "quantity": quantity,
-            "unit": unit,
-            "unit_price": round(unit_price, 2),
-            "line_cost": round(line_cost, 2),
-            "quantity_source": quantity_source,
-            "spec_pages": spec_info.get("pages", []),
-        })
+            resolved_line_items.append({
+                "detail_name": dname,
+                "detail_type": dtype,
+                "drawing_ref": dref,
+                "pricing_key": matched_key,
+                "material_name": spec_info["product_name"],
+                "quantity": quantity,
+                "unit": unit,
+                "unit_price": round(unit_price, 2),
+                "line_cost": round(line_cost, 2),
+                "quantity_source": quantity_source,
+                "spec_pages": spec_info.get("pages", []),
+            })
 
     # ------------------------------------------------------------------
     # Log summary

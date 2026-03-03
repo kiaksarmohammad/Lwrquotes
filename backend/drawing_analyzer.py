@@ -125,48 +125,96 @@ def _product_names_list() -> str:
 
 MEASUREMENT_PROMPT_BASE = """You are a roofing quantity surveyor analyzing a roof plan view drawing.
 
-Your goal is to extract the primary roof measurements from this drawing.
+Follow these steps in order:
 
-1. SCALE: Find the scale notation (e.g., 1/8" = 1'-0" or 1:100).
-2. DIMENSIONS: Read the overall dimensions of the building outline.
+STEP 1 — FIND THE DRAWING SCALE (PRIMARY SOURCE):
+   - Look for a printed scale notation such as "1/8\" = 1'-0\"", "Scale: 1:100",
+     "1:200", or a graphical scale bar with labeled lengths.
+   - Record exactly what it says and where you found it.
+   - If a graphical scale bar is present, use the labeled segment (e.g. "50 ft")
+     to establish the pixel-to-foot ratio.
+   - If the scale is metric (e.g. 1:100 with mm dimensions), convert all measurements
+     to feet before reporting (1 ft = 304.8 mm).
+
+STEP 2 — READ DIMENSION ANNOTATIONS ON THE DRAWING:
+   - Scan for all dimension lines (arrows with numbers).
+   - Identify any that represent the OVERALL building width and depth end-to-end.
+   - Note whether dimensions are in feet-inches or millimetres.
+   - Partial/internal dimensions (e.g. bay spacings, room widths) do NOT count as
+     overall building dimensions unless they clearly sum to the full building span.
+   - If you cannot determine overall width AND overall depth from annotations alone,
+     record annotated_width_ft and annotated_depth_ft as 0 and proceed to Step 3b.
+
+STEP 3 — CALCULATE AREA AND PERIMETER:
+   - If Step 2 gave reliable overall annotated dimensions, use them directly.
+   - Otherwise see Step 3b (reference calibration) below.
+   - For L-shapes or irregular outlines, break into rectangles and sum.
+   - Total Roof Area (sqft): flat plan-view footprint of the roof.
+   - Perimeter (LF): total length of the roof edge.
+   - Parapet Length (LF): edges with a parapet wall (vs. open edges or gutters).
 {reference_section}
-3. CALCULATE:
-   - Total Roof Area (sqft): The total flat roof surface area.
-   - Perimeter (LF): The total length of the roof edge.
-   - Parapet Length (LF): The length of edges that have a parapet wall (vs. open edges or gutters).
+STEP 4 — CONFIDENCE:
+   Rate high/medium/low based on scale legibility and dimension annotation clarity.
+   Use "medium" whenever you relied on reference calibration (Step 3b Case B).
 
-4. CONFIDENCE: Rate your confidence (high/medium/low) based on image clarity and scale visibility.
-
-Return ONLY valid JSON (no markdown, no explanation) in this format:
+Return ONLY valid JSON (no markdown, no explanation):
 {{
   "scale": "1/8\\" = 1'-0\\"",
-  "reference_measurement_used": true,
+  "scale_source": "title block bottom right",
+  "annotated_width_ft": 0.0,
+  "annotated_depth_ft": 0.0,
+  "reference_measurement_used": false,
+  "reference_discrepancy_pct": null,
   "total_roof_area_sqft": 0.0,
   "perimeter_lf": 0.0,
   "parapet_length_lf": 0.0,
   "confidence": "high",
-  "notes": "Scale found in bottom right. Dimensions clear."
+  "notes": "Scale found in title block. Annotated dims: 66'-0\\" x 67'-6\\"."
 }}"""
 
 REFERENCE_SECTION_WITH_DATA = """
-IMPORTANT - REFERENCE MEASUREMENT (use this to calibrate all other dimensions):
-   The user has confirmed that "{description}" measures {value} {unit} in real life.
-   Use this known dimension to:
-   a) Verify or determine the drawing scale
-   b) Cross-check all other measured dimensions against this reference
-   c) If the scale shown on the drawing conflicts with this reference measurement, TRUST the reference measurement
-   d) Calculate all areas and lengths using the scale validated by this reference"""
+STEP 3b — REFERENCE CALIBRATION:
+   Google Maps data provides these building dimensions (approximate bounding box):
+     East-West:  {width_ft} ft
+     North-South: {height_ft} ft
 
-REFERENCE_SECTION_NO_DATA = """   Use the scale notation on the drawing along with any visible dimensions to calculate measurements."""
+   CASE A — Overall annotated dimensions were found in Step 2:
+   - Compare your drawing-based width and depth against the reference above.
+   - A discrepancy under 20% is acceptable; set reference_measurement_used: true
+     and record the percentage difference in reference_discrepancy_pct.
+   - If discrepancy exceeds 20%, keep your drawing-based answer, note it in "notes",
+     and set confidence to "medium".
+
+   CASE B — Overall building dimensions could NOT be determined from annotations:
+   - You MUST use the reference dimensions to calibrate the drawing. Do not give up.
+   - Identify which axis is longer: East-West ({width_ft} ft) or North-South ({height_ft} ft).
+   - Locate the corresponding wall span in the plan view image (the longest horizontal
+     edge for E-W, or longest vertical edge for N-S).
+   - Measure the pixel length of that wall edge in the image.
+   - Compute: scale_ratio = reference_ft / pixel_length  (ft per pixel).
+   - Use this scale_ratio to measure ALL other edges of the building outline.
+   - Sum those edges to get perimeter_lf and calculate total_roof_area_sqft.
+   - Set reference_measurement_used: true, confidence: "medium", and describe
+     the wall you matched and the computed ratio in "notes".
+   - If only a partial plan view is shown (e.g. one wing), apply the same ratio
+     to the visible portion and note it is partial in "notes".
+"""
+
+REFERENCE_SECTION_NO_DATA = """
+STEP 3b — No reference data available:
+   Rely entirely on the drawing scale (Step 1) and any annotations (Step 2).
+   If neither overall dimensions nor a usable scale can be found, return
+   total_roof_area_sqft: 0, perimeter_lf: 0, confidence: "low", and explain
+   in "notes" what was missing.
+"""
 
 
 def _build_measurement_prompt(reference_measurement: dict | None = None) -> str:
     """Build the measurement prompt, injecting reference data if provided."""
     if reference_measurement:
         ref_section = REFERENCE_SECTION_WITH_DATA.format(
-            description=reference_measurement["description"],
-            value=reference_measurement["value"],
-            unit=reference_measurement["unit"],
+            width_ft=reference_measurement.get("width_ft", reference_measurement.get("value", 0)),
+            height_ft=reference_measurement.get("height_ft", reference_measurement.get("value", 0)),
         )
     else:
         ref_section = REFERENCE_SECTION_NO_DATA
@@ -405,6 +453,7 @@ def _call_gemini(client: genai.Client, model: str, image: Image.Image,
             response = client.models.generate_content(
                 model=model,
                 contents=[img_part, prompt],
+                config={"temperature": 0},
             )
             elapsed = time.time() - t0
             logger.info(f"  Gemini API responded in {elapsed:.1f}s ({len(response.text or '')} chars)")
@@ -426,11 +475,13 @@ def _extract_json(text: str) -> str:
     """Extract JSON from AI response, handling markdown code blocks."""
     if "```json" in text:
         start = text.index("```json") + 7
-        end = text.index("```", start)
+        closing = text.find("```", start)
+        end = closing if closing != -1 else len(text)
         return text[start:end].strip()
     if "```" in text:
         start = text.index("```") + 3
-        end = text.index("```", start)
+        closing = text.find("```", start)
+        end = closing if closing != -1 else len(text)
         return text[start:end].strip()
     first = text.find("{")
     last = text.rfind("}")
@@ -545,29 +596,35 @@ def analyze_measurements(pdf_path: str, plan_pages: list[int],
 
 def _aggregate_measurements(candidates: list[dict]) -> dict:
     """Select the best measurement result based on confidence."""
+    default = {
+        "scale": "Unknown",
+        "total_roof_area_sqft": 0.0,
+        "perimeter_lf": 0.0,
+        "parapet_length_lf": 0.0,
+        "confidence": "low",
+        "notes": "No measurements extracted."
+    }
+
     if not candidates:
-        return {
-            "scale": "Unknown",
-            "total_roof_area_sqft": 0.0,
-            "perimeter_lf": 0.0,
-            "parapet_length_lf": 0.0,
-            "confidence": "low",
-            "notes": "No measurements extracted."
-        }
-    
+        return default
+
+    # Only consider successfully parsed results (no error/parse_error keys)
+    successful = [c for c in candidates if not c.get("error") and not c.get("parse_error")]
+    if not successful:
+        return default
+
     # Sort by confidence: high > medium > low
     priority = {"high": 3, "medium": 2, "low": 1}
-    candidates.sort(key=lambda x: priority.get(x.get("confidence", "low").lower(), 0), reverse=True)
-    
-    best = candidates[0]
-    # Ensure numeric values are floats
+    successful.sort(key=lambda x: priority.get(x.get("confidence", "low").lower(), 0), reverse=True)
+
+    best = successful[0]
+    # Ensure all numeric keys exist and are floats
     for key in ["total_roof_area_sqft", "perimeter_lf", "parapet_length_lf"]:
-        if key in best:
-            try:
-                best[key] = float(best[key])
-            except (ValueError, TypeError):
-                best[key] = 0.0
-                
+        try:
+            best[key] = float(best.get(key, 0.0))
+        except (ValueError, TypeError):
+            best[key] = 0.0
+
     return best
 
 
@@ -598,16 +655,23 @@ def analyze_parapet_height(pdf_path: str, detail_pages: list[int],
 
 def _select_best_parapet_height(candidates: list[dict]) -> dict:
     """Select the best parapet height result."""
+    default = {
+        "parapet_height_ft": 1.0,
+        "confidence": "low",
+        "notes": "No parapet details found, using default."
+    }
+
     if not candidates:
-        return {
-            "parapet_height_ft": 2.0,
-            "confidence": "low",
-            "notes": "No parapet details found, using default."
-        }
+        return default
+
+    # Only consider successfully parsed results
+    successful = [c for c in candidates if not c.get("error") and not c.get("parse_error")]
+    if not successful:
+        return default
 
     # Filter out zero heights unless all are zero
-    non_zero = [c for c in candidates if c.get("parapet_height_ft", 0) > 0]
-    pool = non_zero if non_zero else candidates
+    non_zero = [c for c in successful if c.get("parapet_height_ft", 0) > 0]
+    pool = non_zero if non_zero else successful
 
     # Sort by confidence
     priority = {"high": 3, "medium": 2, "low": 1}
@@ -615,9 +679,9 @@ def _select_best_parapet_height(candidates: list[dict]) -> dict:
     
     best = pool[0]
     try:
-        best["parapet_height_ft"] = float(best.get("parapet_height_ft", 2.0))
+        best["parapet_height_ft"] = float(best.get("parapet_height_ft", 1.0))
     except (ValueError, TypeError):
-        best["parapet_height_ft"] = 2.0
+        best["parapet_height_ft"] = 1.0
         
     return best
 

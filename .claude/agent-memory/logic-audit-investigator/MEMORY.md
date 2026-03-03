@@ -36,22 +36,35 @@
 **MINOR: Soprasmart 24 vs 32 sqft/sheet; Vapour barrier 5% vs 10% waste**
 **Low: sbs_base_type defined but never used in calculate_takeoff**
 
-### Detail Takeoff Overestimation Bugs (2026-03-02)
+### Detail Takeoff Bugs (2026-03-02)
 
-**CRITICAL: Substring match in plan_detail_qtys (lines 2783-2788, 3161-3167)**
-- "Detail 1" in "Detail 10/R3.0" = TRUE; small details inherit large quantities
-- Same bug in both calculate_detail_takeoff() and join_takeoff_data()
-- Fix: exact match on detail number, not substring `in`
+**FIXED: Substring match in plan_detail_qtys** - now uses token-exact regex
+**FIXED: join_takeoff_data() costed_pkeys dedup** - costed_pkeys_j added
 
 **MODERATE: parapet_height_ft applied to all linear-to-area conversions (line 2886-2887)**
 - Curbs/expansion joints use parapet height instead of own height
 - 1.5x-3x overestimation for curb area-scope materials
 
-**MODERATE: join_takeoff_data() lacks costed_pkeys dedup (lines 3148-3282)**
-- Same material priced N times for N details; no consolidation
-
 **VERIFIED: CURB_TYPICAL_PERIMETER_LF multiplier (line 2817-2818) is dead code**
-- DETAIL_TYPE_MAP sets mtype="each" for curbs, guard requires "linear_ft"
+
+### Drawing Analysis Pricing Bugs (2026-03-03) - see drawing-analysis-audit.md
+
+**D1-CRITICAL: join_takeoff_data fallback base_value=1.0 (line 3265)**
+**D2-CRITICAL: join_takeoff_data 1 material per detail (lines 3282-3286)**
+**D3-CRITICAL: material_registry first-registration bias (lines 2679-2694)**
+**D4-MODERATE: Spec extractor missing "ISO" -> Polyiso never resolves**
+**D5-MODERATE: "2-Ply SBS" maps to SBS_Membrane ($298/roll) not composite**
+**D6-DESIGN: join_takeoff_data has no RoofMeasurements -> no area/LF fallback**
+Excel reference: $55,543 material cost; spec-driven estimate: $579 (96x under)
+
+### Post-D1-D5 Fix Parity Audit (2026-03-03) - see post-fix-parity-audit.md
+**calculate_detail_takeoff() with Ampersand project data:**
+- With default parapet_h=2.0: $63,556 (+14.4% vs Excel) -> OUTSIDE 5%
+- With parapet_h=1.0: $55,434 (-0.2% vs Excel) -> WITHIN 5% but ERROR CANCELLATION
+- $30,769 overestimation cancels $30,879 underestimation
+- Key overestimates: XPS $13,372 (Excel $0), Coated_Metal $5,831 (Excel $0), Gravel $3,662 (Excel $0)
+- Key underestimates: Tapered ISO missing ($8,376), Soprasmart missing ($6,816), Batt $168 vs $4,535
+- Root cause: AI detail layers drive material list, but miss SBS-specific products (Tapered ISO, Soprasmart, Duotack, Elastocol, Sopralap) while including EPDM-ballasted components at full area
 
 ### Pricing/Coverage Audit (2026-03-02) - see pricing-audit.md
 

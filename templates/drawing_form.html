@@ -56,28 +56,21 @@
     <input type="hidden" name="solar_longest_dir" value="{{ dims.longest_wall_direction }}">
     {% endif %}
 
+    <input type="hidden" name="plan_pages" value="{{ suggestions.plan_pages if suggestions else '' }}">
+    <input type="hidden" name="detail_pages" value="{{ suggestions.detail_pages if suggestions else '' }}">
+
+    {% if spec_path %}
     <fieldset>
-        <legend>Page Ranges (1-indexed, comma-separated or ranges like 1-3)</legend>
+        <legend>Specification Pages</legend>
         <div class="form-row">
-            <label for="plan_pages">Plan View Pages</label>
-            <input type="text" id="plan_pages" name="plan_pages" placeholder="e.g. 2,3" value="{{ suggestions.plan_pages if suggestions else '' }}">
-            <small>Pages showing the roof plan view with equipment layout</small>
-        </div>
-        <div class="form-row">
-            <label for="detail_pages">Detail/Section Pages</label>
-            <input type="text" id="detail_pages" name="detail_pages" placeholder="e.g. 4,5,6" value="{{ suggestions.detail_pages if suggestions else '' }}">
-            <small>Pages showing cross-section details and material assemblies</small>
-        </div>
-        {% if spec_path %}
-        <div class="form-row">
-            <label for="spec_pages">Spec Pages</label>
+            <label for="spec_pages">Spec Pages to Parse for Materials</label>
             <input type="text" id="spec_pages" name="spec_pages" placeholder="e.g. 40-45">
-            <small>Pages from the specification document</small>
+            <small>Pages from the specification document containing material product lists</small>
         </div>
-        {% else %}
-        <input type="hidden" name="spec_pages" value="">
-        {% endif %}
     </fieldset>
+    {% else %}
+    <input type="hidden" name="spec_pages" value="">
+    {% endif %}
 
     <fieldset>
         <legend>Reference Measurement (from Google Maps)</legend>
@@ -115,11 +108,6 @@
                 </select>
             </div>
             <small>Auto-filled from Google Maps, or override manually</small>
-        </div>
-        <div class="form-row">
-            <label for="ref_page">Which page shows this measurement?</label>
-            <input type="number" id="ref_page" name="ref_page" min="1" max="{{ page_count }}" placeholder="e.g. 2" value="">
-            <small>Leave blank to use the first plan page</small>
         </div>
     </fieldset>
 

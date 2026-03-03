@@ -519,7 +519,12 @@ PRICING = {
         "sample_descriptions": ["SPF 2x4x8", "SPF 2x4x10", "SPF 2x6x8"],
     },
     # Per-sqft / per-unit composite rates for address-based estimator
-    "SBS_2Ply_Modified_Bitumen": 7.00,
+    "SBS_2Ply_Modified_Bitumen": {
+        "canonical_name": "2-Ply SBS Membrane System",
+        "category": "Membranes",
+        "avg_price": 7.00,
+        "unit": "sqft",
+    },
     "TPO_60mil_Mechanically_Attached": 5.50,
     "EPDM_60mil_Fully_Adhered": 6.00,
     "ISO_Insulation_2_Layer": 3.75,
@@ -1126,7 +1131,7 @@ PRODUCT_KEYWORDS: dict[str, dict[str, str]] = {
         r"inverted.*membrane\s+roof": "Inverted Membrane Roofing",
     },
     "Insulation": {
-        r"polyisocyanurate\s+insulation": "Polyisocyanurate Insulation",
+        r"polyisocyanurate\s+insulation": "Polyisocyanurate (ISO) Insulation",
         r"fibe?r\s*board\s+insulation": "Fiberboard Insulation",
         r"tapered\s+expanded\s+polystyrene\s+insulation": "Tapered Expanded Polystyrene (EPS) Insulation",
         r"tapered\s+insulation\s+sump": "Tapered Insulation Sump",
