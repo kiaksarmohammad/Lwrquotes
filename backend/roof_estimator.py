@@ -2671,6 +2671,20 @@ def measurements_from_analysis(analysis: dict,
         for key, val in plan.get("counts", {}).items():
             counts[key] = counts.get(key, 0) + val
 
+    # Sanity check: warn if drain density is unusually low for the roof area.
+    # Typical commercial roofs have 1 drain per 200-300 sqft. Over 400 sqft/drain
+    # suggests the AI may have missed drains — flag for manual verification.
+    drain_count = counts.get("roof_drains", 0)
+    if drain_count > 0 and total_roof_area_sqft > 0:
+        sqft_per_drain = total_roof_area_sqft / drain_count
+        if sqft_per_drain > 400:
+            logger.warning(
+                "[measurements_from_analysis] AI drain count (%d) may be low for "
+                "%.0f sqft (%.0f sqft/drain — typical is 200-300). "
+                "Verify drain count manually before finalising estimate.",
+                drain_count, total_roof_area_sqft, sqft_per_drain,
+            )
+
     return RoofMeasurements(
         total_roof_area_sqft=total_roof_area_sqft,
         perimeter_lf=perimeter_lf,
@@ -3292,6 +3306,11 @@ _DETAIL_TYPE_TO_SPEC_KEYS: dict[str, list[str]] = {
         "TPO_60mil_Mechanically_Attached",
         "SBS_2Ply_Modified_Bitumen",
         "EPDM_60mil_Fully_Adhered",
+        # Ancillary field materials confirmed in spec but rarely drawn as layers
+        "PMMA_Primer",
+        "Fleece_Reinforcement_Fabric",
+        "Duotack_Adhesive",
+        "Asphalt_Adhesive",
     ],
     "parapet": [
         "Flashing_General",
@@ -3307,6 +3326,9 @@ _DETAIL_TYPE_TO_SPEC_KEYS: dict[str, list[str]] = {
     ],
     "drain": [
         "Roof_Drain",
+        "Fleece_Reinforcement_Fabric",
+        "PMMA_Primer",
+        "Catalyst",
     ],
     "mechanical_curb": [
         "Flashing_General",
@@ -3647,6 +3669,64 @@ def join_takeoff_data(
                 "quantity_source": quantity_source,
                 "spec_pages": spec_info.get("pages", []),
             })
+
+    # ------------------------------------------------------------------
+    # Pass 2: Spec-confirmed ancillary materials not matched by any detail
+    # Primers, adhesives, fleece, and catalyst are confirmed in the spec but
+    # rarely appear as distinct layers in section drawings, so they fall through
+    # the main detail loop. This pass catches them and prices using a simple
+    # sqft or per-EA basis derived from the project measurements.
+    # ------------------------------------------------------------------
+    _SPEC_ONLY_QTY_BASIS: dict[str, tuple[str, str]] = {
+        "PMMA_Primer":                 ("sqft", "total_roof_area_sqft"),
+        "Fleece_Reinforcement_Fabric": ("sqft", "total_roof_area_sqft"),
+        "Duotack_Adhesive":            ("sqft", "total_roof_area_sqft"),
+        "Asphalt_Adhesive":            ("sqft", "total_roof_area_sqft"),
+        "Catalyst":                    ("each", "roof_drain_count"),
+    }
+    for pk, (_, attr) in _SPEC_ONLY_QTY_BASIS.items():
+        if pk not in confirmed_spec or pk in costed_pkeys_j:
+            continue
+        costed_pkeys_j.add(pk)
+        spec_info = confirmed_spec[pk]
+        unit_price = _get_price(pk)
+        coverage = COVERAGE_RATES.get(pk, {})
+
+        if measurements is not None:
+            basis = float(getattr(measurements, attr, 0) or 0)
+        else:
+            basis = 1.0
+
+        if coverage.get("per_each") is not None:
+            quantity = max(1, int(basis))
+            unit = coverage.get("unit", "EA")
+        elif coverage.get("sqft_per_unit") is not None:
+            quantity = math.ceil(basis * 1.10 / coverage["sqft_per_unit"])
+            unit = coverage.get("unit", "unit")
+        elif coverage.get("lf_per_unit") is not None:
+            quantity = math.ceil(basis * 1.10 / coverage["lf_per_unit"])
+            unit = coverage.get("unit", "unit")
+        else:
+            quantity = max(1, int(basis))
+            unit = "EA"
+
+        quantity = max(1, quantity)
+        line_cost = quantity * unit_price
+        grand_total += line_cost
+
+        resolved_line_items.append({
+            "detail_name": "Spec-Confirmed Ancillary Material",
+            "detail_type": "spec_only",
+            "drawing_ref": "specification",
+            "pricing_key": pk,
+            "material_name": spec_info.get("product_name", pk),
+            "quantity": quantity,
+            "unit": unit,
+            "unit_price": round(unit_price, 2),
+            "line_cost": round(line_cost, 2),
+            "quantity_source": "spec_fallback",
+            "spec_pages": spec_info.get("pages", []),
+        })
 
     # ------------------------------------------------------------------
     # Log summary

@@ -135,6 +135,13 @@ STEP 1 — FIND THE DRAWING SCALE (PRIMARY SOURCE):
      to establish the pixel-to-foot ratio.
    - If the scale is metric (e.g. 1:100 with mm dimensions), convert all measurements
      to feet before reporting (1 ft = 304.8 mm).
+   - METRIC REPRESENTATIVE FRACTION SCALES (e.g. 1:70, 1:100, 1:200): These mean
+     1 unit on paper = N units in reality. Use dimension annotations (in mm) directly:
+     dimension_ft = dimension_mm / 304.8. Do NOT scale from pixels unless no annotations
+     exist — pixel-based scaling with metric RFs is error-prone.
+   - SANITY CHECK: A typical small commercial roof is 500–5,000 sqft. If your calculated
+     area exceeds 5,000 sqft for what appears to be a small building, recheck the scale
+     factor before reporting.
 
 STEP 2 — READ DIMENSION ANNOTATIONS ON THE DRAWING:
    - Scan for all dimension lines (arrows with numbers).
@@ -149,6 +156,11 @@ STEP 3 — CALCULATE AREA AND PERIMETER:
    - If Step 2 gave reliable overall annotated dimensions, use them directly.
    - Otherwise see Step 3b (reference calibration) below.
    - For L-shapes or irregular outlines, break into rectangles and sum.
+   - MULTI-SECTION ROOFS: If the roof has two or more disconnected or clearly separate
+     sections, measure each as its own rectangle (length × width) and SUM the areas.
+     Do NOT use a single bounding box across all sections — this overcounts significantly.
+     Example: two sections (90ft × 13ft) + (40ft × 5ft) = 1,170 + 200 = 1,370 sqft,
+     NOT 90ft × 18ft = 1,620 sqft.
    - Total Roof Area (sqft): flat plan-view footprint of the roof.
    - Perimeter (LF): total length of the roof edge.
    - Parapet Length (LF): edges with a parapet wall (vs. open edges or gutters).
@@ -271,6 +283,7 @@ IMPORTANT classification rules:
 - Structural repairs (concrete patching, grouting) are NOT field_assembly - classify as "opening_cover"
 - Each penetration, curb, or opening is measured as "each" with a small count
 - DEMOLITION / PLANTER DETAILS: Any detail titled "DEMOLITION", "DEMO", "PLANTER WALL", "PLANTER WALL DEMO", or any detail that describes removal/stripping of existing materials (not new installation) must be classified as "opening_cover" — do NOT classify it as "field_assembly". Planter wall and green roof teardown details containing XPS insulation, drainage boards, and filter fabric are existing assembly removals, NOT the new roof field assembly.
+- REINSTALL / EXISTING ITEMS: For each material layer, if the drawing annotation says "temporarily remove and reinstate", "existing to remain", "remove and dispose", "salvage and reinstall", or similar, you MUST copy that exact phrase into the layer's "notes" field. These are NOT new material purchases — they are existing items being handled during construction and must be flagged so they can be excluded from material costing.
 
 Our pricing database keys:
 {pricing_keys}
@@ -309,7 +322,7 @@ PLAN_PROMPT = """You are a roofing quantity-takeoff specialist analyzing a roof 
 Count and identify everything visible on this plan view:
 
 1. ITEM COUNTS - count each type you can see:
-   - roof_drains: circular drain symbols
+   - roof_drains: circular drain symbols — includes circles with cross-hairs, concentric circles, circles labelled "D", "RD", "FD", or drain grate symbols. Scan the ENTIRE plan systematically left-to-right, top-to-bottom. Count ALL drain symbols including any partially obscured by dimension lines or annotations. Double-check your total before reporting.
    - scuppers: rectangular openings in parapet/wall edges
    - mechanical_units: large rooftop equipment (RTUs, AHUs)
    - sleeper_curbs: linear support structures (often shown as parallel lines)
@@ -454,7 +467,7 @@ def _call_gemini(client: genai.Client, model: str, image: Image.Image,
             response = client.models.generate_content(
                 model=model,
                 contents=[img_part, prompt],
-                config={"temperature": 0},
+                config={"temperature": 0, "seed": 42},
             )
             elapsed = time.time() - t0
             logger.info(f"  Gemini API responded in {elapsed:.1f}s ({len(response.text or '')} chars)")
@@ -625,6 +638,25 @@ def _aggregate_measurements(candidates: list[dict]) -> dict:
             best[key] = float(best.get(key, 0.0))
         except (ValueError, TypeError):
             best[key] = 0.0
+
+    # Geometric sanity check: area vs perimeter plausibility.
+    # A square with side = perimeter/4 has the MAXIMUM area for that perimeter.
+    # If the reported area exceeds 1.5× that maximum, the scale is likely wrong.
+    area = best.get("total_roof_area_sqft", 0.0)
+    perim = best.get("perimeter_lf", 0.0)
+    if area > 0 and perim > 0:
+        max_square_area = (perim / 4.0) ** 2
+        if area > max_square_area * 1.5:
+            logger.warning(
+                "[MEASUREMENTS] Area (%.0f sqft) exceeds 1.5× the theoretical maximum "
+                "for perimeter %.0f LF (max square = %.0f sqft). Possible scale error — "
+                "verify measurement manually.",
+                area, perim, max_square_area,
+            )
+            best["_area_perimeter_warning"] = (
+                f"Area {area:.0f} sqft may be overestimated for perimeter {perim:.0f} LF "
+                f"(max square = {max_square_area:.0f} sqft). Check scale."
+            )
 
     return best
 
