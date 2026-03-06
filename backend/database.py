@@ -794,6 +794,16 @@ COMMON_ROOF_MATERIALS = {
         "sample_descriptions": ["Sopravap'r WG 45in", "SOP VAPOR R BASE SHEET 45\" 5Sq"],
         "notes": "Used in both EPDM and TPO systems",
     },
+    "Vapour_Barrier_SBS": {
+        "canonical_name": "Elastophene SP 2.2 (SBS Vapour Barrier)",
+        "category": "Vapour Barrier",
+        "avg_price": 82.45,
+        "unit": "roll",
+        "size": "1m x 15m (161 sqft)",
+        "price_source": "Excel 333 5th Ave 2025",
+        "sample_descriptions": ["Elastophene Flam 2.2 mm", "Elastophene SP 2.2"],
+        "notes": "SBS-specific peel-and-stick vapour barrier. 1m x 15m roll = 161 sqft gross.",
+    },
     "Vapour_Barrier_TieIn": {
         "canonical_name": "Vapour Barrier Tie In",
         "category": "Vapour Barrier",

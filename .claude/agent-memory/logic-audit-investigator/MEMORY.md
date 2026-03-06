@@ -57,6 +57,15 @@
 **D6-DESIGN: join_takeoff_data has no RoofMeasurements -> no area/LF fallback**
 Excel reference: $55,543 material cost; spec-driven estimate: $579 (96x under)
 
+### 333 5th Ave Overestimation Audit (2026-03-06) - see 333-5th-ave-audit.md
+**Root cause: same SBS superset bug as Ampersand (below)**
+- Excel total materials: $20,117.35 (area=1370, perim=215, height=8in)
+- App field assembly: $23,967.14 (area=1534, perim=230, parapet=139x0.66ft)
+- Phantom materials: XPS($4,632), Soprasmart($3,781), Drainage Board($2,463) = $11,476
+- Wrong primer: Asphaltic($1,980) vs Elastocol($535) = +$1,445
+- Missing from app: ISO Glass($1,948), Densdeck($1,642), Vapour Barrier($860), Duotack($2,870)
+- Strip area 2.7x too low: app 91.7sqft vs Excel 250.8sqft (girth=14in not just height)
+
 ### Post-D1-D5 Fix Parity Audit (2026-03-03) - see post-fix-parity-audit.md
 **calculate_detail_takeoff() with Ampersand project data:**
 - With default parapet_h=2.0: $63,556 (+14.4% vs Excel) -> OUTSIDE 5%

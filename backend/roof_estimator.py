@@ -939,8 +939,14 @@ _PRICE_OVERRIDES = {
 # Format: (name, pricing_key, unit, sqft_per_unit, area_source, waste_pct, bid_group)
 _SYSTEM_AREA_LAYERS = {
     "SBS": [
-        ("Asphaltic Primer",
-         "Primer", "pail (5 gal)", 250, "roof_area", 0.05, "roofing"),
+        ("Vapour Barrier (Elastophene SP 2.2)",
+         "Vapour_Barrier_SBS", "roll (1m x 15m)", 161, "roof_area", 0.10, "roofing"),
+        ("ISO Insulation 2.5\" (Sopra-ISO)",
+         "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
+        ("Tapered ISO Insulation (drainage slope)",
+         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
+        ("Densdeck Coverboard 1/2\"",
+         "Densdeck_Half_Inch", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
         ("SBS Base Sheet - Field (Sopraply Base 520)",
          "Base_Membrane", "roll", 100, "roof_area", 0.15, "roofing"),
         ("SBS Base Sheet - Wall (Sopraply Base 520)",
@@ -949,16 +955,6 @@ _SYSTEM_AREA_LAYERS = {
          "Cap_Membrane", "roll", 86, "roof_area", 0.15, "roofing"),
         ("SBS Cap Sheet - Wall (Sopraply Traffic Cap)",
          "Cap_Membrane", "roll", 86, "strip_sqft", 0.15, "flashing"),
-        ("Tapered ISO Insulation (drainage slope)",
-         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
-        ("XPS Insulation (Sopra-XPS 40 Type 4)",
-         "XPS_Insulation", "sheet (2'x8')", 16, "roof_area", 0.10, "roofing"),
-        ("Drainage Board (Sopradrain EcoVent)",
-         "Drainage_Board", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
-        ("Filter Fabric",
-         "Fleece_Reinforcement_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
-        ("Soprasmart ISO HD 1/2\" (factory laminated coverboard)",
-         "Soprasmart_ISO_HD", "sheet (3'x8')", 24, "roof_area", 0.10, "roofing"),
     ],
     "EPDM_Fully_Adhered": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
@@ -1284,7 +1280,8 @@ class RoofMeasurements:
         """Total membrane strip area from perimeter sections."""
         if self.perimeter_sections:
             return sum(s.strip_sqft for s in self.perimeter_sections)
-        return self.parapet_length_lf * self.parapet_height_ft
+        # Fallback: use full perimeter + 6" (0.5 ft) deck overlap, matching metal fallback
+        return self.perimeter_lf * (self.parapet_height_ft + 0.5)
 
     @property
     def total_metal_sqft(self) -> float:
@@ -1342,8 +1339,7 @@ class RoofMeasurements:
 
     @property
     def effective_tapered_area(self) -> float:
-        area = self.computed_roof_area
-        return self.tapered_area_sqft if self.tapered_area_sqft is not None else area
+        return self.tapered_area_sqft if self.tapered_area_sqft is not None else 0.0
 
     @property
     def effective_ballast_area(self) -> float:
@@ -1492,6 +1488,7 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # Map pricing keys to toggle categories
     _TOGGLE_MAP = {
         "Vapour_Barrier_Sopravapor": "include_vapour_barrier",
+        "Vapour_Barrier_SBS": "include_vapour_barrier",
         "Polyisocyanurate_ISO_Insulation": "include_insulation",
         "ISO_2_5_inch": "include_insulation",
         "XPS_Insulation": "include_insulation",
@@ -2724,6 +2721,7 @@ def _build_synthetic_field_section(m: RoofMeasurements) -> dict:
 
     _TOGGLE_MAP = {
         "Vapour_Barrier_Sopravapor": "include_vapour_barrier",
+        "Vapour_Barrier_SBS": "include_vapour_barrier",
         "Polyisocyanurate_ISO_Insulation": "include_insulation",
         "ISO_2_5_inch": "include_insulation",
         "XPS_Insulation": "include_insulation",
