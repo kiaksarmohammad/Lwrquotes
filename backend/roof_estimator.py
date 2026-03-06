@@ -1014,6 +1014,48 @@ _SYSTEM_AREA_LAYERS = {
     ],
 }
 
+# Maps each pricing key to the set of roof systems where it is valid.
+# Keys absent from this dict are common materials (allowed in all systems).
+# calculate_detail_takeoff() uses this to reject AI-detected materials that
+# belong to a cross-section drawing for a different assembly type.
+_SYSTEM_EXCLUSIVE_KEYS: dict[str, frozenset] = {
+    # EPDM Ballasted only (inverted/ballasted assembly materials)
+    "XPS_Insulation":              frozenset({"EPDM_Ballasted"}),
+    "XPS_Dow_EPDM":                frozenset({"EPDM_Ballasted"}),
+    "EPS_Insulation_EPDM":         frozenset({"EPDM_Ballasted"}),
+    "EPDM_Filter_Fabric":          frozenset({"EPDM_Ballasted"}),
+    "EPDM_Drainage_Mat":           frozenset({"EPDM_Ballasted"}),
+    "Gravel_Ballast":              frozenset({"EPDM_Ballasted"}),
+    "Filter_Fabric":               frozenset({"EPDM_Ballasted"}),
+    "Drainage_Board":              frozenset({"EPDM_Ballasted"}),
+    # EPDM systems only
+    "EPDM_Membrane_60mil":         frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Membrane_45mil":         frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Bonding_Adhesive":       frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Seam_Tape":              frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_PS_Corner":              frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Pipe_Flashing":          frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Curb_Flash":             frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_RUSS_6":                 frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Primer_HP250":           frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Cav_Grip":               frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Lap_Sealant":            frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    "EPDM_Accessory":              frozenset({"EPDM_Fully_Adhered", "EPDM_Ballasted"}),
+    # TPO systems only
+    "TPO_Membrane":                frozenset({"TPO_Mechanically_Attached", "TPO_Fully_Adhered"}),
+    "TPO_Bonding_Adhesive_SureWeld": frozenset({"TPO_Fully_Adhered"}),
+    "TPO_Screws":                  frozenset({"TPO_Mechanically_Attached"}),
+    "TPO_Primer":                  frozenset({"TPO_Fully_Adhered"}),
+    "TPO_Flashing_24in":           frozenset({"TPO_Mechanically_Attached", "TPO_Fully_Adhered"}),
+    "TPO_Flashing_12in":           frozenset({"TPO_Mechanically_Attached", "TPO_Fully_Adhered"}),
+    "TPO_Rhinobond_Plate":         frozenset({"TPO_Mechanically_Attached"}),
+    "TPO_Accessory":               frozenset({"TPO_Mechanically_Attached", "TPO_Fully_Adhered"}),
+    "Soprasmart_ISO_HD":           frozenset({"TPO_Fully_Adhered"}),
+    # SBS only
+    "Vapour_Barrier_SBS":          frozenset({"SBS"}),
+    "Adhesive_Elastocol":          frozenset({"SBS"}),
+}
+
 # Consumables per system type
 # Format: (name, pricing_key, unit, rate_per_1000sqft, bid_group)
 _SYSTEM_CONSUMABLES = {
@@ -2654,7 +2696,8 @@ def measurements_from_analysis(analysis: dict,
                                 total_roof_area_sqft: float,
                                 perimeter_lf: float,
                                 parapet_length_lf: float | None = None,
-                                parapet_height_ft: float = 2.0) -> RoofMeasurements:
+                                parapet_height_ft: float = 2.0,
+                                roof_system_type: str = "SBS") -> RoofMeasurements:
     """
     Build RoofMeasurements using AI-detected item counts + user-provided areas.
 
@@ -2669,8 +2712,6 @@ def measurements_from_analysis(analysis: dict,
             counts[key] = counts.get(key, 0) + val
 
     # Sanity check: warn if drain density is unusually low for the roof area.
-    # Typical commercial roofs have 1 drain per 200-300 sqft. Over 400 sqft/drain
-    # suggests the AI may have missed drains — flag for manual verification.
     drain_count = counts.get("roof_drains", 0)
     if drain_count > 0 and total_roof_area_sqft > 0:
         sqft_per_drain = total_roof_area_sqft / drain_count
@@ -2682,11 +2723,38 @@ def measurements_from_analysis(analysis: dict,
                 drain_count, total_roof_area_sqft, sqft_per_drain,
             )
 
+    # Build dimensioned CurbDetail objects from AI-detected counts so that
+    # calculate_takeoff() uses the accurate dimensioned path instead of the
+    # legacy count-based flat-rate fallback.
+    # Dimensions match CURB_TYPICAL_PERIMETER_LF: mechanical_curb=52 LF/unit (~18'x8'),
+    # sleeper_curb=7 LF/unit (~3'x0.5').
+    curbs: list[CurbDetail] = []
+    mech_count = counts.get("mechanical_units", 0)
+    if mech_count > 0:
+        curbs.append(CurbDetail(
+            curb_type="RTU",
+            count=mech_count,
+            length_in=216,  # 18 ft
+            width_in=96,    # 8 ft  → 52 LF perimeter per unit
+            height_in=18,
+        ))
+    sleeper_count = counts.get("sleeper_curbs", 0)
+    if sleeper_count > 0:
+        curbs.append(CurbDetail(
+            curb_type="Vent_Curb",
+            count=sleeper_count,
+            length_in=36,   # 3 ft
+            width_in=6,     # 0.5 ft → 7 LF perimeter per unit
+            height_in=6,
+        ))
+
     return RoofMeasurements(
         total_roof_area_sqft=total_roof_area_sqft,
         perimeter_lf=perimeter_lf,
         parapet_length_lf=parapet_length_lf or perimeter_lf,
         parapet_height_ft=parapet_height_ft,
+        roof_system_type=roof_system_type,
+        curbs=curbs,
         roof_drain_count=counts.get("roof_drains", 0),
         scupper_count=counts.get("scuppers", 0),
         mechanical_unit_count=counts.get("mechanical_units", 0),
@@ -2831,6 +2899,7 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     }
 
     grand_total = 0.0
+    _active_system = m.roof_system_type
 
     # --- Build plan-view detail_quantities lookup ---
     # Merges detail_quantities from all plan pages into a single dict
@@ -2937,6 +3006,13 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             elif scope == "linear":
                 if _LINEAR_PRIORITY.get(dtype_candidate, 0) > _LINEAR_PRIORITY.get(current_dtype, 0):
                     info["detail_type"] = dtype_candidate
+
+    # Remove materials that belong exclusively to a different roof system.
+    # This prevents AI-detected layers from cross-section drawings (which may
+    # show alternative assemblies like EPDM Ballasted alongside the active SBS
+    # assembly) from inflating the estimate with phantom materials.
+    for _pkey in [k for k in list(material_registry) if k in _SYSTEM_EXCLUSIVE_KEYS and _active_system not in _SYSTEM_EXCLUSIVE_KEYS[k]]:
+        del material_registry[_pkey]
 
     # Assign quantity basis using detail_type + scope to pick the RIGHT area.
     # Detail types that cover the whole roof field use total_roof_area_sqft.
@@ -3148,6 +3224,24 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             # Skip reinstall/demolition layers — not new material purchases
             _ltext = f"{layer.get('material', '')} {layer.get('notes', '')}".lower()
             if any(phrase in _ltext for phrase in _REINSTALL_LAYER_PHRASES):
+                continue
+
+            # Skip materials that belong exclusively to a different roof system.
+            # Cross-section drawings often show multiple assembly types; reject
+            # any pricing key whose allowed systems don't include the active one.
+            _allowed_sys = _SYSTEM_EXCLUSIVE_KEYS.get(pkey)
+            if _allowed_sys is not None and _active_system not in _allowed_sys:
+                detail_result["layers"].append({
+                    "pricing_key": pkey,
+                    "material": layer.get("material", "?"),
+                    "scope": "excluded",
+                    "quantity_basis": 0,
+                    "units_needed": 0,
+                    "unit": COVERAGE_RATES.get(pkey, {}).get("unit", "unit"),
+                    "unit_price": 0,
+                    "layer_cost": 0,
+                    "note": f"Excluded: {pkey} not applicable to {_active_system}",
+                })
                 continue
 
             # --- Deduplication: each material is costed only once ---

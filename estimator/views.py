@@ -554,8 +554,8 @@ async def drawing_analyze(request):
             perimeter_lf,
             parapet_length_lf or perimeter_lf,
             parapet_height_ft,
+            roof_system_type=roof_system_type,
         )
-        measurements.roof_system_type = roof_system_type
 
         # Step 4: Pricing
         joined_estimate = None

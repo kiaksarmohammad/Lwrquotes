@@ -203,9 +203,13 @@
 {% endif %}
 <!-- /Spec-Driven Pricing -->
 
-<!-- Detail-Based Takeoff -->
+<!-- Detail-Based Takeoff — PRIMARY estimate for Excel comparison -->
 {% if detail_estimate and detail_estimate.details %}
-<h2>Detail-Based Quantity Takeoff (AI-Analyzed)</h2>
+<h2>Primary Estimate
+    <small style="font-size:0.6em; font-weight:normal; color:#6c757d;">
+        (AI Detail Takeoff &mdash; use this for Excel comparison)
+    </small>
+</h2>
 
 {% set meas = detail_estimate.project_measurements %}
 <div class="summary-bar">
@@ -292,16 +296,32 @@
 {% endif %}
 {% endif %}
 
-<!-- Standard Estimate for Comparison -->
+<!-- Standard Estimate — collapsed secondary check -->
 {% if standard_estimate %}
-<h2>Standard Estimate (for comparison)</h2>
 {% set sbid = standard_estimate.bid_summary %}
-<div class="bid-summary">
-    <div class="bid-total">
-        <span class="label">Standard Total Estimate</span>
-        <span class="value">{{ sbid.total_estimate | currency }}</span>
+<details style="margin-top:1.5rem;">
+    <summary style="cursor:pointer; font-size:1.1rem; font-weight:600; color:#555;">
+        Quick Check: System-Default Estimate
+        <small style="font-size:0.75em; font-weight:normal; color:#999; margin-left:8px;">
+            (hardcoded material stacks &mdash; does not include AI-detected details)
+        </small>
+    </summary>
+    <div class="bid-summary" style="margin-top:0.75rem;">
+        <div class="bid-total">
+            <span class="label">Total Estimate (incl. labour)</span>
+            <span class="value">{{ sbid.total_estimate | currency }}</span>
+        </div>
+        <div class="bid-total">
+            <span class="label">Material Only</span>
+            <span class="value">{{ sbid.total_material_cost | currency }}</span>
+        </div>
     </div>
-</div>
+    <p style="color:#888; font-size:0.85em; margin-top:0.5rem;">
+        This estimate uses system-default material layers only. It does not account
+        for AI-identified details (curb assemblies, drain inserts, parapet specifics).
+        Compare the <strong>Primary Estimate</strong> above against your Excel reference.
+    </p>
+</details>
 {% endif %}
 
 <div class="actions">
