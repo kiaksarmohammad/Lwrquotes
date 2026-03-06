@@ -307,10 +307,10 @@ async def drawing_measure(request):
     logger = logging.getLogger("drawing_measure")
 
     form = request.POST
-    pdf_path = form.get("pdf_path", "")
+    pdf_path = os.path.normpath(form.get("pdf_path", ""))
     plan_pages = form.get("plan_pages", "")
     detail_pages = form.get("detail_pages", "")
-    spec_path = form.get("spec_path", "")
+    spec_path = os.path.normpath(form.get("spec_path", "")) if form.get("spec_path") else ""
     spec_pages = form.get("spec_pages", "")
     ref_description = form.get("ref_description", "")
     ref_value = float(form.get("ref_value", 0.0) or 0.0)
@@ -321,10 +321,14 @@ async def drawing_measure(request):
     solar_longest_dir = form.get("solar_longest_dir", "")
 
     # Path traversal protection
-    if not pdf_path.startswith(str(UPLOAD_DIR)):
+    upload_dir = os.path.normpath(str(UPLOAD_DIR))
+    if not pdf_path.startswith(upload_dir):
         return HttpResponseBadRequest("Invalid file path")
-    if spec_path and not spec_path.startswith(str(UPLOAD_DIR)):
+    if spec_path and not spec_path.startswith(upload_dir):
         return HttpResponseBadRequest("Invalid spec file path")
+
+    if not os.path.isfile(pdf_path):
+        return HttpResponseBadRequest(f"PDF file not found: {pdf_path}")
 
     try:
         from backend.drawing_analyzer import (
@@ -464,10 +468,10 @@ async def drawing_analyze(request):
     _logger = logging.getLogger("drawing_analyze")
 
     form = request.POST
-    pdf_path = form.get("pdf_path", "")
+    pdf_path = os.path.normpath(form.get("pdf_path", ""))
     plan_pages = form.get("plan_pages", "")
     detail_pages = form.get("detail_pages", "")
-    spec_path = form.get("spec_path", "")
+    spec_path = os.path.normpath(form.get("spec_path", "")) if form.get("spec_path") else ""
     spec_pages = form.get("spec_pages", "")
     total_roof_area = float(form.get("total_roof_area", 0.0) or 0.0)
     perimeter_lf = float(form.get("perimeter_lf", 0.0) or 0.0)
@@ -476,10 +480,14 @@ async def drawing_analyze(request):
     roof_system_type = form.get("roof_system_type", "SBS")
 
     # Path traversal protection
-    if not pdf_path.startswith(str(UPLOAD_DIR)):
+    upload_dir = os.path.normpath(str(UPLOAD_DIR))
+    if not pdf_path.startswith(upload_dir):
         return HttpResponseBadRequest("Invalid file path")
-    if spec_path and not spec_path.startswith(str(UPLOAD_DIR)):
+    if spec_path and not spec_path.startswith(upload_dir):
         return HttpResponseBadRequest("Invalid spec file path")
+
+    if not os.path.isfile(pdf_path):
+        return HttpResponseBadRequest(f"PDF file not found: {pdf_path}")
 
     try:
         from backend.drawing_analyzer import analyze_drawing, _parse_page_list

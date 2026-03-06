@@ -72,6 +72,7 @@ def render_pdf_pages(pdf_path: str,
     Returns:
         List of (page_number, PIL.Image) tuples.
     """
+    pdf_path = os.path.normpath(pdf_path)
     doc = pdfium.PdfDocument(pdf_path)
     total = len(doc)
     indices = [p - 1 for p in pages] if pages else list(range(total))
