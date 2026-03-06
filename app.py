@@ -525,6 +525,7 @@ async def drawing_analyze(
     perimeter_lf: float = Form(0.0),
     parapet_length_lf: float = Form(0.0),
     parapet_height_ft: float = Form(1.0),
+    roof_system_type: str = Form("SBS"),
 ):
     import logging
     _logger = logging.getLogger("drawing_analyze")
@@ -608,6 +609,7 @@ async def drawing_analyze(
             parapet_length_lf or perimeter_lf,
             parapet_height_ft,
         )
+        measurements.roof_system_type = roof_system_type
 
         # -------------------------------------------------------------------
         # Step 4: Pricing.

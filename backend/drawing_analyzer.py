@@ -270,6 +270,7 @@ IMPORTANT classification rules:
 - Slab openings, infills, patches, and localized repairs are NOT field_assembly - classify as "opening_cover"
 - Structural repairs (concrete patching, grouting) are NOT field_assembly - classify as "opening_cover"
 - Each penetration, curb, or opening is measured as "each" with a small count
+- DEMOLITION / PLANTER DETAILS: Any detail titled "DEMOLITION", "DEMO", "PLANTER WALL", "PLANTER WALL DEMO", or any detail that describes removal/stripping of existing materials (not new installation) must be classified as "opening_cover" — do NOT classify it as "field_assembly". Planter wall and green roof teardown details containing XPS insulation, drainage boards, and filter fabric are existing assembly removals, NOT the new roof field assembly.
 
 Our pricing database keys:
 {pricing_keys}

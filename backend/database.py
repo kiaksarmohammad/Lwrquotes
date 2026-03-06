@@ -186,16 +186,24 @@ PRICING = {
         "price_source": "Sage 2025 (Sopraply Base 520)",
         "sample_descriptions": ["SOP VAPOR R BASE SHEET 45\" 5Sq", "Elastoflex WC 30SBS Base Sheet Poly"],
     },
+    "Base_Membrane_Peel_Stick": {
+        "canonical_name": "Peel & Stick Base Membrane (Sopraply Stick Duo)",
+        "category": "Membranes",
+        "avg_price": 165.00,  # TODO: verify against Excel peel-and-stick base sheet row
+        "unit": "RL",
+        "price_source": "Placeholder — verify against Excel",
+        "sample_descriptions": ["Sopraply Stick Duo (Self-Adhered Base)", "peel and stick base sheet"],
+    },
     "Cap_Membrane": {
         "canonical_name": "Cap Membrane",
         "category": "Membranes",
-        "avg_price": 150,
-        "min_price": 150,
-        "max_price": 216.95,
-        "count": 1,
+        "avg_price": 105.80,
+        "min_price": 98.00,
+        "max_price": 163.50,
+        "count": 3,
         "unit": "Roll",
-        "price_source": "Sage 2025 (Sopraply Traffic Cap)",
-        "sample_descriptions": ["Paradiene 30FR TG Cap Sheet"],
+        "price_source": "Sopraply Traffic Cap GR avg: s340090 $111.20 + s340128 $98.00, confirmed $105.80 (Sage 2025)",
+        "sample_descriptions": ["Sopraply Traffic Cap GR", "Paradiene 30FR TG Cap Sheet"],
     },
     "EPDM_Accessory": {
         "canonical_name": "EPDM Accessory",
@@ -880,6 +888,38 @@ COMMON_ROOF_MATERIALS = {
         "avg_price": 10.95,
         "unit": "sqft",
         "sample_descriptions": ["Metal cladding panel", "WF-ALLCLAD PANEL 24GA"],
+    },
+    "Cap_Flashing_Galvanized": {
+        "canonical_name": "Galvanized Cap Flashing (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 8.50,
+        "unit": "LF",
+        "price_source": "Excel ($85 per 10ft piece)",
+        "sample_descriptions": ["24ga galv cap flashing"],
+    },
+    "Cap_Flashing_Prepainted": {
+        "canonical_name": "Prepainted Cap Flashing (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 6.50,
+        "unit": "LF",
+        "price_source": "Excel ($65 per 10ft piece)",
+        "sample_descriptions": ["24ga prepainted cap flashing"],
+    },
+    "Counter_Flashing_Galvanized": {
+        "canonical_name": "Galvanized Counter Flashing (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 7.00,  # TODO: verify against Excel counter flashing row
+        "unit": "LF",
+        "price_source": "Placeholder — verify against Excel",
+        "sample_descriptions": ["24ga galv counter flashing"],
+    },
+    "Counter_Flashing_Prepainted": {
+        "canonical_name": "Prepainted Counter Flashing (24ga)",
+        "category": "Metal Flashings & Accessories",
+        "avg_price": 5.50,  # TODO: verify against Excel counter flashing row
+        "unit": "LF",
+        "price_source": "Placeholder — verify against Excel",
+        "sample_descriptions": ["24ga prepainted counter flashing"],
     },
     # --- Wood Products (Excel: FRS R115-R120) ---
     "Cant_Strip_4x4": {

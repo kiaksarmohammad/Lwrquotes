@@ -42,6 +42,7 @@ from backend.database import (
 COVERAGE_RATES = {
     "Primer":                          {"sqft_per_unit": 250, "unit": "pail"},
     "Base_Membrane":                   {"sqft_per_unit": 100, "unit": "roll"},
+    "Base_Membrane_Peel_Stick":        {"sqft_per_unit": 100, "unit": "roll"},
     "Cap_Membrane":                    {"sqft_per_unit": 86,  "unit": "roll"},
     "SBS_Membrane":                    {"sqft_per_unit": 100, "unit": "roll"},
     "SBS_2Ply_Modified_Bitumen":       {"sqft_per_unit": 1,   "unit": "sqft"},
@@ -110,7 +111,11 @@ COVERAGE_RATES = {
     "ISO_2_5_inch":                     {"sqft_per_unit": 16,   "unit": "sheet (4'x4')"},
     "Densdeck_Half_Inch":               {"sqft_per_unit": 32,   "unit": "sheet (4'x8')"},
     "Tapered_ISO":                      {"sqft_per_unit": 1,    "unit": "sqft"},
-    "Soprasmart_ISO_HD":                {"sqft_per_unit": 32,   "unit": "sheet (4'x8')"},
+    "Soprasmart_ISO_HD":                {"sqft_per_unit": 24,   "unit": "sheet (3'x8')"},
+    "Cap_Flashing_Galvanized":         {"lf_per_unit": 1,      "unit": "LF"},
+    "Cap_Flashing_Prepainted":         {"lf_per_unit": 1,      "unit": "LF"},
+    "Counter_Flashing_Galvanized":     {"lf_per_unit": 1,      "unit": "LF"},
+    "Counter_Flashing_Prepainted":     {"lf_per_unit": 1,      "unit": "LF"},
     "Duotack_Adhesive":                 {"sqft_per_unit": 500,  "unit": "case"},
     "Elastocol_Stick":                  {"sqft_per_unit": 333,  "unit": "pail (19L)"},
     "TPO_Bonding_Adhesive_SureWeld":    {"sqft_per_unit": 300,  "unit": "pail (5 gal)"},
@@ -171,6 +176,31 @@ DETAIL_TYPE_MAP = {
     "pipe_support":            ("each",      "plumbing_vent_count"),
     "opening_cover":           ("each",      "mechanical_unit_count"),
 }
+
+# Keywords in AI detail_name that indicate demolition / non-new-work scope.
+# Details matching any of these are excluded from both calculate_detail_takeoff
+# and join_takeoff_data to prevent planter/demo products inflating material costs.
+_DEMO_DETAIL_KEYWORDS = [
+    "demo",
+    "demolition",
+    "planter",
+    "green roof",
+    "existing to remain",
+    "removal",
+    "strip and dispose",
+]
+
+# Phrases in a layer's material/notes text that flag it as an existing item being
+# temporarily disturbed or disposed — NOT a new material purchase. Layers matching
+# any of these are excluded from material costing in both takeoff functions.
+_REINSTALL_LAYER_PHRASES = [
+    "temporarily remove",
+    "remove and reinstate",
+    "existing to remain",
+    "remove and dispose",
+    "reinstall existing",
+    "salvage and reinstall",
+]
 
 # Map discrete pricing_key -> RoofMeasurements count attribute.
 # Used by calculate_detail_takeoff() to ensure per-EA items always use
@@ -280,6 +310,18 @@ VENT_LABOUR_HOURS = {
 METAL_FLASHING_TYPES = {
     "galvanized":  "Metal_Flashing_Galvanized",
     "prepainted":  "Metal_Flashing_Prepainted",
+    "cladding":    "Metal_Cladding_Panel",
+}
+
+CAP_FLASHING_TYPES = {
+    "galvanized":  "Cap_Flashing_Galvanized",
+    "prepainted":  "Cap_Flashing_Prepainted",
+    "cladding":    "Metal_Cladding_Panel",
+}
+
+COUNTER_FLASHING_TYPES = {
+    "galvanized":  "Counter_Flashing_Galvanized",
+    "prepainted":  "Counter_Flashing_Prepainted",
     "cladding":    "Metal_Cladding_Panel",
 }
 
@@ -899,22 +941,28 @@ _SYSTEM_AREA_LAYERS = {
     "SBS": [
         ("Asphaltic Primer",
          "Primer", "pail (5 gal)", 250, "roof_area", 0.05, "roofing"),
-        ("SBS Base Sheet (Sopraply Base 520)",
+        ("SBS Base Sheet - Field (Sopraply Base 520)",
          "Base_Membrane", "roll", 100, "roof_area", 0.15, "roofing"),
-        ("SBS Cap Sheet (Sopraply Traffic Cap)",
+        ("SBS Base Sheet - Wall (Sopraply Base 520)",
+         "Base_Membrane", "roll", 100, "strip_sqft", 0.15, "flashing"),
+        ("SBS Cap Sheet - Field (Sopraply Traffic Cap)",
          "Cap_Membrane", "roll", 86, "roof_area", 0.15, "roofing"),
-        ("Tapered ISO Insulation (Soprasmart Board 2:1)",
-         "Polyisocyanurate_ISO_Insulation", "sheet (4'x4')", 16, "tapered_area", 0.10, "roofing"),
+        ("SBS Cap Sheet - Wall (Sopraply Traffic Cap)",
+         "Cap_Membrane", "roll", 86, "strip_sqft", 0.15, "flashing"),
+        ("Tapered ISO Insulation (drainage slope)",
+         "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
         ("XPS Insulation (Sopra-XPS 40 Type 4)",
          "XPS_Insulation", "sheet (2'x8')", 16, "roof_area", 0.10, "roofing"),
         ("Drainage Board (Sopradrain EcoVent)",
          "Drainage_Board", "roll (6'x50')", 300, "roof_area", 0.10, "roofing"),
         ("Filter Fabric",
          "Fleece_Reinforcement_Fabric", "roll", 300, "roof_area", 0.10, "roofing"),
+        ("Soprasmart ISO HD 1/2\" (factory laminated coverboard)",
+         "Soprasmart_ISO_HD", "sheet (3'x8')", 24, "roof_area", 0.10, "roofing"),
     ],
     "EPDM_Fully_Adhered": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
@@ -928,7 +976,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "EPDM_Ballasted": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
         ("EPDM Membrane 60 mil (Carlisle Sure-Seal, loose laid)",
          "EPDM_Membrane_60mil", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
         ("EPS Insulation Type II (2 layers x 2.5\")",
@@ -940,7 +988,7 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "TPO_Mechanically_Attached": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
@@ -954,13 +1002,13 @@ _SYSTEM_AREA_LAYERS = {
     ],
     "TPO_Fully_Adhered": [
         ("Vapour Barrier (Sopravap'r WG 45\")",
-         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.05, "roofing"),
+         "Vapour_Barrier_Sopravapor", "roll (45\" x 5Sq)", 500, "roof_area", 0.10, "roofing"),
         ("ISO Insulation 2.5\" (Sopra-ISO)",
          "ISO_2_5_inch", "sheet (4'x4')", 16, "roof_area", 0.10, "roofing"),
         ("Tapered ISO Insulation (drainage slope)",
          "Tapered_ISO", "sqft", 1, "tapered_area", 0.10, "roofing"),
         ("Soprasmart ISO HD 1/2\" (factory laminated coverboard)",
-         "Soprasmart_ISO_HD", "sheet (4'x8')", 32, "roof_area", 0.10, "roofing"),
+         "Soprasmart_ISO_HD", "sheet (3'x8')", 24, "roof_area", 0.10, "roofing"),
         ("TPO Membrane 60 mil (Sure-Weld)",
          "TPO_Membrane", "roll (10'x100')", 1000, "roof_area", 0.10, "roofing"),
         ("TPO Bonding Adhesive (SureWeld)",
@@ -982,6 +1030,7 @@ _SYSTEM_CONSUMABLES = {
         ("Sopralap Cover Strip", "Sopralap_Cover_Strip", "roll", 1, "roofing"),
         ("Screws & Plates (insulation fastening)", "Screws_Plates_Combo", "box (1M)", 1, "roofing"),
         ("Flashing Bond Mastic", "Flashing_Bond_Mastic", "tube", 3, "flashing"),
+        ("Duotack Foamable Adhesive (insulation bonding)", "Duotack_Adhesive", "case", 2, "roofing"),
     ],
     "EPDM_Fully_Adhered": [
         ("EPDM Lap Sealant", "EPDM_Lap_Sealant", "tube", 4, "roofing"),
@@ -1077,6 +1126,16 @@ _PIPE_SEAL_KEY = {
     "EPDM_Ballasted": ("EPDM_Pipe_Flashing", "EPDM Pipe Flashing (1\"-6\")"),
     "TPO_Mechanically_Attached": ("TPO_Pipe_Boot", "TPO Universal Pipe Boot"),
     "TPO_Fully_Adhered": ("TPO_Pipe_Boot", "TPO Universal Pipe Boot"),
+}
+
+# Membrane pricing keys that physically wrap up curb faces.
+# Excel parity: these use base_area = roof_area + curb_flashing_sqft (F13 + G36).
+_MEMBRANE_WRAPS_CURBS: set[str] = {
+    "Base_Membrane",
+    "Base_Membrane_Peel_Stick",
+    "Cap_Membrane",
+    "EPDM_Membrane_60mil",
+    "TPO_Membrane",
 }
 
 
@@ -1453,12 +1512,19 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         if toggle_attr and not getattr(m, toggle_attr, True):
             continue
 
+        # SBS base type: swap to peel-and-stick product if selected
+        if pkey == "Base_Membrane" and system == "SBS" and m.sbs_base_type == "peel_stick":
+            pkey = "Base_Membrane_Peel_Stick"
+            name = name.replace("Sopraply Base 520", "Sopraply Stick Duo (Peel & Stick)")
+
         if area_src == "roof_area":
             base_area = roof_area
         elif area_src == "tapered_area":
             base_area = m.effective_tapered_area
         elif area_src == "ballast_area":
             base_area = m.effective_ballast_area
+        elif area_src == "strip_sqft":
+            base_area = m.total_strip_sqft
         else:
             base_area = roof_area
 
@@ -1596,8 +1662,11 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # LINEAR-FOOT MATERIALS (flashings, blocking, sheathing)
     # Uses perimeter section girth data when available
     # ===================================================================
-    metal_flash_key = METAL_FLASHING_TYPES.get(
-        m.metal_flashing_type, "Metal_Flashing_Galvanized"
+    cap_flash_key = CAP_FLASHING_TYPES.get(
+        m.metal_flashing_type, "Cap_Flashing_Galvanized"
+    )
+    counter_flash_key = COUNTER_FLASHING_TYPES.get(
+        m.metal_flashing_type, "Counter_Flashing_Galvanized"
     )
     metal_type_label = {
         "galvanized": "Galvanized w/ Clips",
@@ -1619,9 +1688,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
 
         linear_items = [
             (f"Metal Cap Flashing ({metal_type_label})",
-             metal_flash_key, "LF", 1, total_cap_lf, 0.10, "flashing"),
+             cap_flash_key, "LF", 1, total_cap_lf, 0.10, "flashing"),
             (f"Metal Counter Flashing ({metal_type_label})",
-             metal_flash_key, "LF", 1, total_counter_lf, 0.10, "flashing"),
+             counter_flash_key, "LF", 1, total_counter_lf, 0.10, "flashing"),
             ("Wood Blocking (SPF 2x)",
              "Wood_Blocking_Lumber", "8ft piece", 8, total_wood_lf, 0.15, "flashing"),
             ("Plywood Sheathing (12.5mm Douglas Fir)",
@@ -1631,9 +1700,9 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
         # Simple fallback
         linear_items = [
             (f"Metal Cap Flashing ({metal_type_label})",
-             metal_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
+             cap_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
             (f"Metal Counter Flashing ({metal_type_label})",
-             metal_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
+             counter_flash_key, "LF", 1, m.parapet_length_lf, 0.10, "flashing"),
             ("Wood Blocking (SPF 2x)",
              "Wood_Blocking_Lumber", "8ft piece", 8, m.parapet_length_lf, 0.15, "flashing"),
             ("Plywood Sheathing (12.5mm Douglas Fir)",
@@ -2275,13 +2344,17 @@ def calculate_takeoff(m: RoofMeasurements) -> dict:
     # OTHER COSTS (Excel: FRS R123-R125)
     # Delivery, Disposal, Toilet, Fencing
     # ===================================================================
-    # Delivery
-    if m.delivery_count > 0:
+    # Delivery — auto-scale count if left at default (Excel: scales with material volume)
+    # Threshold: 1 trip per 1,200 sqft (derived from Ampersand reference: 3,500 sqft = 3 trips)
+    effective_delivery_count = m.delivery_count
+    if m.delivery_count <= 1 and roof_area > 0:
+        effective_delivery_count = max(1, math.ceil(roof_area / 1200))
+    if effective_delivery_count > 0:
         delivery_price = 250.00
-        delivery_cost = m.delivery_count * delivery_price
+        delivery_cost = effective_delivery_count * delivery_price
         results["other_costs"].append({
             "name": "Delivery",
-            "quantity": m.delivery_count,
+            "quantity": effective_delivery_count,
             "unit": "trip",
             "unit_price": delivery_price,
             "line_cost": round(delivery_cost, 2),
@@ -2612,6 +2685,109 @@ def measurements_from_analysis(analysis: dict,
         electrical_penetration_count=counts.get("electrical_penetrations", 0),
         plumbing_vent_count=counts.get("plumbing_vents", 0),
     )
+
+
+def _build_synthetic_field_section(m: RoofMeasurements) -> dict:
+    """
+    Build a synthetic field_assembly detail from plan-view measurements.
+
+    Mirrors the _SYSTEM_AREA_LAYERS loop in calculate_takeoff() exactly.
+    Injects field membrane, insulation, and coverboard into
+    calculate_detail_takeoff() even when the AI found no cross-section
+    field_assembly drawing (which is the normal case for flat roof plan views).
+
+    Excel parity (SBS Worksheet F13 / G36 logic):
+    - All area-based field materials use gross roof area (F13 = total_roof_area_sqft).
+    - Membrane keys that physically wrap curb faces add total_curb_flashing_sqft
+      (G36) to their area basis so the membrane covers the curb sides.
+    - Wall/strip materials use total_strip_sqft (M58).
+    - All toggles on m (include_insulation, include_coverboard, etc.) are honoured.
+    """
+    system = m.roof_system_type
+    roof_area = m.computed_roof_area
+    strip_area = m.total_strip_sqft
+    curb_flash_sqft = m.total_curb_flashing_sqft
+
+    _TOGGLE_MAP = {
+        "Vapour_Barrier_Sopravapor": "include_vapour_barrier",
+        "Polyisocyanurate_ISO_Insulation": "include_insulation",
+        "ISO_2_5_inch": "include_insulation",
+        "XPS_Insulation": "include_insulation",
+        "EPS_Insulation_EPDM": "include_insulation",
+        "DensDeck_Coverboard": "include_coverboard",
+        "Densdeck_Half_Inch": "include_coverboard",
+        "Soprasmart_ISO_HD": "include_coverboard",
+        "Tapered_ISO": "include_tapered",
+        "Drainage_Board": "include_drainage",
+        "EPDM_Drainage_Mat": "include_drainage",
+        "EPDM_Filter_Fabric": "include_drainage",
+        "Fleece_Reinforcement_Fabric": "include_drainage",
+    }
+
+    area_layers = _SYSTEM_AREA_LAYERS.get(system, _SYSTEM_AREA_LAYERS["SBS"])
+    layers_out: list[dict] = []
+    section_cost = 0.0
+
+    for name, pkey, unit, sqft_per_unit, area_src, waste_pct, _bid_grp in area_layers:
+        toggle_attr = _TOGGLE_MAP.get(pkey)
+        if toggle_attr and not getattr(m, toggle_attr, True):
+            continue
+
+        if pkey == "Base_Membrane" and system == "SBS" and m.sbs_base_type == "peel_stick":
+            pkey = "Base_Membrane_Peel_Stick"
+            name = name.replace("Sopraply Base 520", "Sopraply Stick Duo (Peel & Stick)")
+
+        if area_src == "roof_area":
+            base_area = roof_area
+        elif area_src == "tapered_area":
+            base_area = m.effective_tapered_area
+        elif area_src == "ballast_area":
+            base_area = m.effective_ballast_area
+        elif area_src == "strip_sqft":
+            base_area = strip_area
+        else:
+            base_area = roof_area
+
+        # Excel G36 addition: membrane wraps up curb faces → add curb flashing area.
+        if pkey in _MEMBRANE_WRAPS_CURBS and curb_flash_sqft > 0:
+            base_area = base_area + curb_flash_sqft
+
+        area_with_waste = base_area * (1.0 + waste_pct)
+        units_needed = math.ceil(area_with_waste / sqft_per_unit)
+
+        if pkey == "EPS_Insulation_EPDM":
+            unit_price = 0.31 * m.eps_thickness_in * 16
+        else:
+            unit_price = _get_price(pkey)
+
+        layer_cost = units_needed * unit_price
+        section_cost += layer_cost
+
+        cov = COVERAGE_RATES.get(pkey, {})
+        layers_out.append({
+            "pricing_key": pkey,
+            "material": name,
+            "scope": "area",
+            "quantity_basis": round(base_area, 1),
+            "units_needed": units_needed,
+            "unit": cov.get("unit", unit),
+            "unit_price": round(unit_price, 2),
+            "layer_cost": round(layer_cost, 2),
+        })
+
+    return {
+        "detail_name": "Field Assembly (Plan View)",
+        "detail_type": "field_assembly",
+        "drawing_ref": "plan_view",
+        "measurement_type": "sqft",
+        "base_measurement": round(roof_area, 1),
+        "quantity_source": "plan_view_synthetic",
+        "layers": layers_out,
+        "detail_cost": round(section_cost, 2),
+        "_synthetic": True,
+    }
+
+
 def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
     """
     Calculate takeoff using AI-identified detail assemblies.
@@ -2635,6 +2811,9 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             "parapet_length_lf": m.parapet_length_lf,
             "parapet_height_ft": m.parapet_height_ft,
             "total_penetrations": m.total_penetrations,
+            "roof_system_type": m.roof_system_type,
+            "total_curb_flashing_sqft": round(m.total_curb_flashing_sqft, 1),
+            "total_strip_sqft": round(m.total_strip_sqft, 1),
         },
         "details": [],
     }
@@ -2668,9 +2847,29 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         for detail in page_data.get("details", []):
             detail["_drawing_ref"] = drawing_ref
             all_details.append(detail)
-    #error catcher
-    if not all_details:
-        print("  WARNING: No AI detail analysis found. Use calculate_takeoff() instead.")
+
+    # Filter out demolition / planter details — their products (XPS, drainage board,
+    # filter fabric, etc.) are removal items, not new-build materials.
+    all_details = [
+        d for d in all_details
+        if not any(kw in d.get("detail_name", "").lower() for kw in _DEMO_DETAIL_KEYWORDS)
+    ]
+
+    # --- Synthetic field section ---
+    # Always build field materials from plan-view measurements (_SYSTEM_AREA_LAYERS),
+    # even when the AI found no cross-section field_assembly drawing.
+    # Any AI-extracted field_assembly details are suppressed (_is_alternative=True)
+    # so the consolidated material deduplication pass prevents double-costing.
+    synthetic_field = _build_synthetic_field_section(m)
+    for d in all_details:
+        if d.get("detail_type") == "field_assembly":
+            d["_is_alternative"] = True
+    all_details = [synthetic_field] + all_details
+
+    if not synthetic_field["layers"] and not any(
+        d for d in all_details if not d.get("_is_alternative")
+    ):
+        print("  WARNING: No field layers and no AI details found.")
         return results
     # Build material registry: each pricing key is registered once with its
     # scope (area/linear/discrete) and the detail_type it first appeared in.
@@ -2684,6 +2883,10 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
         for layer in detail.get("layers", []):
             pkey = layer.get("pricing_key", "custom")
             if pkey in material_registry or pkey == "CUSTOM" or pkey == "custom":
+                continue
+            # Skip reinstall/demolition layers — not new material purchases
+            _ltext = f"{layer.get('material', '')} {layer.get('notes', '')}".lower()
+            if any(phrase in _ltext for phrase in _REINSTALL_LAYER_PHRASES):
                 continue
             scope = _material_scope(pkey)
             detail_type = detail.get("detail_type", "unknown")
@@ -2899,9 +3102,40 @@ def calculate_detail_takeoff(m: RoofMeasurements, analysis: dict) -> dict:
             detail_result["_is_alternative"] = True
             results["details"].append(detail_result)
             continue
+
+        # --- Synthetic field section: use pre-computed layer values directly ---
+        # The synthetic can have duplicate pricing keys (e.g. Base_Membrane for
+        # field AND for wall/strip). The material_registry would deduplicate them
+        # to a single entry. Instead, trust the pre-computed values and mark all
+        # keys as costed so downstream AI details don't re-price them.
+        if detail.get("_synthetic"):
+            for layer in detail.get("layers", []):
+                pkey = layer.get("pricing_key", "custom")
+                if pkey not in ("custom", "CUSTOM"):
+                    costed_pkeys.add(pkey)
+                detail_result["layers"].append({
+                    "pricing_key": pkey,
+                    "material": layer.get("material", "?"),
+                    "scope": layer.get("scope", "area"),
+                    "quantity_basis": layer.get("quantity_basis", 0),
+                    "units_needed": layer.get("units_needed", 0),
+                    "unit": layer.get("unit", "unit"),
+                    "unit_price": layer.get("unit_price", 0.0),
+                    "layer_cost": layer.get("layer_cost", 0.0),
+                })
+                detail_result["detail_cost"] += layer.get("layer_cost", 0.0)
+            detail_result["detail_cost"] = round(detail_result["detail_cost"], 2)
+            grand_total += detail_result["detail_cost"]
+            results["details"].append(detail_result)
+            continue
+
         for layer in detail.get("layers", []):
             pkey = layer.get("pricing_key", "custom")
             if pkey == "custom" or pkey == "CUSTOM":
+                continue
+            # Skip reinstall/demolition layers — not new material purchases
+            _ltext = f"{layer.get('material', '')} {layer.get('notes', '')}".lower()
+            if any(phrase in _ltext for phrase in _REINSTALL_LAYER_PHRASES):
                 continue
 
             # --- Deduplication: each material is costed only once ---
@@ -3227,6 +3461,13 @@ def join_takeoff_data(
             detail["_drawing_ref"] = drawing_ref
             all_details.append(detail)
 
+    # Filter out demolition / planter details — their products are removal items,
+    # not new-build materials (Issue 1 fix).
+    all_details = [
+        d for d in all_details
+        if not any(kw in d.get("detail_name", "").lower() for kw in _DEMO_DETAIL_KEYWORDS)
+    ]
+
     if not all_details:
         logger.warning(
             "[join_takeoff_data] No detail_analysis entries in spatial_json. "
@@ -3313,8 +3554,13 @@ def join_takeoff_data(
         layer_keys: list[str] = []
         for layer in detail.get("layers", []):
             pk = layer.get("pricing_key", "")
-            if pk and pk not in layer_keys:
-                layer_keys.append(pk)
+            if not pk or pk in layer_keys:
+                continue
+            # Skip reinstall/demolition layers — not new material purchases
+            _ltext = f"{layer.get('material', '')} {layer.get('notes', '')}".lower()
+            if any(phrase in _ltext for phrase in _REINSTALL_LAYER_PHRASES):
+                continue
+            layer_keys.append(pk)
         for type_key in _DETAIL_TYPE_TO_SPEC_KEYS.get(dtype, []):
             if type_key not in layer_keys:
                 layer_keys.append(type_key)
